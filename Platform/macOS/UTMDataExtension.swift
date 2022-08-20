@@ -58,6 +58,7 @@ extension UTMData {
             vm.delegate = unwrappedWindow
             unwrappedWindow.showWindow(nil)
             unwrappedWindow.window!.makeMain()
+            unwrappedWindow.window!.toggleFullScreen(nil)
             unwrappedWindow.requestAutoStart()
         } else if let unwrappedWindow = window as? VMHeadlessSessionState {
             vmWindows[vm] = unwrappedWindow
