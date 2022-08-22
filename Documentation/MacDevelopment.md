@@ -23,6 +23,7 @@ If you want to build the dependencies yourself, it is highly recommended that yo
 2. Install the following build prerequisites
     ```
     brew install bison pkg-config gettext glib-utils libgpg-error nasm meson
+    hash -r    # So the correct pip3 -- Homebrew's, not Xcode's -- is used
     pip3 install six pyparsing
     ```
    Make sure to add `bison` to your `$PATH` environment variable!
