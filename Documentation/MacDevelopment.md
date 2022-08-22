@@ -22,7 +22,9 @@ If you want to build the dependencies yourself, it is highly recommended that yo
 1. Install Xcode command line and [Homebrew][1]
 2. Install the following build prerequisites
     `brew install bison pkg-config gettext glib-utils libgpg-error nasm meson`
+    `hash -r`
     `pip3 install six pyparsing`
+   (`hash -r` is necessary to ensure that the pip3 installed by Homebrew, not the one installed by Xcode, is used. If the `pip3 install` is done with Xcode's pip3, the build fails.)
    Make sure to add `bison` to your `$PATH` environment variable!
 	`export PATH=/usr/local/opt/bison/bin:/opt/homebrew/opt/bison/bin:$PATH`
 3. Run `./scripts/build_dependencies.sh -p macos -a ARCH` where `ARCH` is either `arm64` or `x86_64`.
