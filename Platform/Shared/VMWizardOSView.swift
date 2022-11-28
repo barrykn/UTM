@@ -30,6 +30,7 @@ struct VMWizardOSView: View {
                     Button {
                         wizardState.operatingSystem = .macOS
                         wizardState.useAppleVirtualization = true
+                        wizardState.isGuestToolsInstallRequested = false
                         wizardState.next()
                     } label: {
                         OperatingSystem(imageName: "mac", name: "macOS 12+")
@@ -39,12 +40,14 @@ struct VMWizardOSView: View {
                 Button {
                     wizardState.operatingSystem = .Windows
                     wizardState.useAppleVirtualization = false
+                    wizardState.isGuestToolsInstallRequested = true
                     wizardState.next()
                 } label: {
                     OperatingSystem(imageName: "windows", name: "Windows")
                 }
                 Button {
                     wizardState.operatingSystem = .Linux
+                    wizardState.isGuestToolsInstallRequested = false
                     wizardState.next()
                 } label: {
                     OperatingSystem(imageName: "linux", name: "Linux")
@@ -56,6 +59,7 @@ struct VMWizardOSView: View {
                 Button {
                     wizardState.operatingSystem = .Other
                     wizardState.useAppleVirtualization = false
+                    wizardState.isGuestToolsInstallRequested = false
                     wizardState.next()
                 } label: {
                     HStack {
@@ -73,14 +77,16 @@ struct VMWizardOSView: View {
             }
 
         }
+        #if os(iOS)
         .navigationTitle(Text("Operating System"))
+        #endif
         .buttonStyle(.inList)
     }
 }
 
 struct OperatingSystem: View {
     let imageName: String
-    let name: String
+    let name: LocalizedStringKey
     
     private var imageURL: URL {
         let path = Bundle.main.path(forResource: imageName, ofType: "png", inDirectory: "Icons")!

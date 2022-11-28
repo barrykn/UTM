@@ -29,18 +29,19 @@ extension UTMData {
             if let avm = vm as? UTMAppleVirtualMachine {
                 if avm.appleConfig.system.architecture == UTMAppleConfigurationSystem.currentArchitecture {
                     let primarySerialIndex = avm.appleConfig.serials.firstIndex { $0.mode == .builtin }
-                    if let primarySerialIndex = primarySerialIndex, avm.appleConfig.displays.isEmpty {
+                    if let primarySerialIndex = primarySerialIndex {
                         window = VMDisplayAppleTerminalWindowController(primaryForIndex: primarySerialIndex, vm: avm, onClose: close)
-                    } else if #available(macOS 12, *), !avm.appleConfig.displays.isEmpty {
+                    }
+                    if #available(macOS 12, *), !avm.appleConfig.displays.isEmpty {
                         window = VMDisplayAppleDisplayWindowController(vm: vm, onClose: close)
-                    } else if avm.appleConfig.displays.isEmpty {
+                    } else if avm.appleConfig.displays.isEmpty && window == nil {
                         window = VMHeadlessSessionState(for: avm, onStop: close)
                     }
                 }
             }
             if let qvm = vm as? UTMQemuVirtualMachine {
                 if qvm.config.qemuHasDisplay {
-                    window = VMQemuDisplayMetalWindowController(vm: qvm, onClose: close)
+                    window = VMDisplayQemuMetalWindowController(vm: qvm, onClose: close)
                 } else if qvm.config.qemuHasTerminal {
                     window = VMDisplayQemuTerminalWindowController(vm: qvm, onClose: close)
                 } else {
@@ -69,7 +70,7 @@ extension UTMData {
     }
     
     func stop(vm: UTMVirtualMachine) throws {
-        if vm.viewState.hasSaveState {
+        if vm.hasSaveState {
             vm.requestVmDeleteState()
         }
         vm.vmStop(force: false, completion: { _ in
@@ -85,9 +86,9 @@ extension UTMData {
         }
     }
     
-    func trySendTextSpice(vm: UTMQemuVirtualMachine, text: String) {
+    func trySendTextSpice(vm: UTMVirtualMachine, text: String) {
         guard text.count > 0 else { return }
-        if let vc = vmWindows[vm] as? VMQemuDisplayMetalWindowController {
+        if let vc = vmWindows[vm] as? VMDisplayQemuMetalWindowController {
             KeyCodeMap.createKeyMapIfNeeded()
             
             func sleep() {
@@ -175,17 +176,13 @@ extension UTMData {
                     }
                 }
             }
-        } else if let vc = vmWindows[vm] as? VMDisplayQemuTerminalWindowController {
-            if let data = text.data(using: .nonLossyASCII) {
-                vc.defaultSerialWrite(data: data)
-            } else {
-                logger.warning("failed to convert the text: '\(text)'")
-            }
+        } else if let terminal = vmWindows[vm] as? VMDisplayTerminal {
+            terminal.sendString(text)
         }
     }
     
     func tryClickAtPoint(vm: UTMQemuVirtualMachine, point: CGPoint, button: CSInputButton) {
-        if let vc = vmWindows[vm] as? VMQemuDisplayMetalWindowController {
+        if let vc = vmWindows[vm] as? VMDisplayQemuMetalWindowController {
             vc.mouseMove(absolutePoint: point, button: [])
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
                 vc.mouseDown(button: button)

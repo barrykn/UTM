@@ -94,6 +94,14 @@ struct VMWizardSummaryView: View {
                     wizardState.name = data.newDefaultVMName(base: os.rawValue)
                 }
             }
+            if #available(iOS 15, macOS 12, *) {
+                wizardState.confusedUserCheck()
+            } else {
+                // SwiftUI bug: on older versions you need some delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) {
+                    wizardState.confusedUserCheck()
+                }
+            }
         }
     }
     
@@ -109,7 +117,7 @@ struct VMWizardSummaryView: View {
     
     var system: some View {
         Group {
-            TextField("Engine", text: .constant(wizardState.useAppleVirtualization ? "Apple Virtualization" : "QEMU"))
+            TextField("Engine", text: .constant(NSLocalizedString(wizardState.useAppleVirtualization ? "Apple Virtualization" : "QEMU", comment: "VMWizardSummaryView")))
             Toggle("Use Virtualization", isOn: $wizardState.useVirtualization)
             if !wizardState.useAppleVirtualization {
                 TextField("Architecture", text: .constant(wizardState.systemArchitecture.prettyValue))
@@ -126,7 +134,7 @@ struct VMWizardSummaryView: View {
     
     var boot: some View {
         Group {
-            TextField("Operating System", text: .constant(wizardState.operatingSystem.rawValue))
+            TextField("Operating System", text: .constant(NSLocalizedString(wizardState.operatingSystem.rawValue, comment: "VMWizardSummaryView")))
             Toggle("Skip Boot Image", isOn: $wizardState.isSkipBootImage)
             if !wizardState.isSkipBootImage {
                 TextField("Boot Image", text: .constant(wizardState.bootImageURL?.path ?? ""))

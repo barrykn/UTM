@@ -34,6 +34,7 @@ class Main {
     static var jitAvailable = true
     
     static func main() {
+        #if os(iOS)
         registerDefaultsFromSettingsBundle()
         // check if we have jailbreak
         if jb_has_jit_entitlement() {
@@ -48,6 +49,13 @@ class Main {
             logger.info("JIT: ptrace() hack failed")
             jitAvailable = false
         }
+        // raise memlimits on jailbroken devices
+        if jb_increase_memlimit() {
+            logger.info("MEM: successfully removed memory limits")
+        }
+        // UIViewController patches
+        UTMViewControllerPatches.patchAll()
+        #endif
         UTMApp.main()
     }
     

@@ -24,6 +24,8 @@ struct VMSettingsView: View {
     @State private var isCreateDriveShown: Bool = false
     @State private var isImportDriveShown: Bool = false
     
+    @StateObject private var globalFileImporterShim = GlobalFileImporterShim()
+    
     @EnvironmentObject private var data: UTMData
     @Environment(\.presentationMode) private var presentationMode: Binding<PresentationMode>
     
@@ -102,11 +104,11 @@ struct VMSettingsView: View {
                         }.onDelete { offsets in
                             config.sound.remove(atOffsets: offsets)
                         }
-                    }
+                    }.uniqued()
                     Section(header: Text("Drives")) {
-                        VMDrivesSettingsView(config: config, isCreateDriveShown: $isCreateDriveShown)
+                        VMDrivesSettingsView(config: config, isCreateDriveShown: $isCreateDriveShown, isImportDriveShown: $isImportDriveShown)
                             .labelStyle(RoundRectIconLabelStyle(color: .yellow))
-                    }
+                    }.uniqued()
                 }
             }
             .navigationTitle("Settings")
@@ -122,15 +124,18 @@ struct VMSettingsView: View {
                     Text("Save")
                 }
             })
-            .fileImporter(isPresented: $isImportDriveShown, allowedContentTypes: [.item], onCompletion: importDrive)
-        }.disabled(data.busy)
+            .fileImporter(isPresented: $globalFileImporterShim.isPresented, allowedContentTypes: globalFileImporterShim.allowedContentTypes, onCompletion: globalFileImporterShim.onCompletion)
+        }.environmentObject(globalFileImporterShim)
+        .disabled(data.busy)
         .overlay(BusyOverlay())
     }
     
     func save() {
-        presentationMode.wrappedValue.dismiss()
         data.busyWorkAsync {
             try await data.save(vm: vm)
+            await MainActor.run {
+                presentationMode.wrappedValue.dismiss()
+            }
         }
     }
     
@@ -138,22 +143,6 @@ struct VMSettingsView: View {
         presentationMode.wrappedValue.dismiss()
         data.busyWork {
             try data.discardChanges(for: self.vm)
-        }
-    }
-    
-    private func importDrive(result: Result<URL, Error>) {
-        data.busyWorkAsync {
-            switch result {
-            case .success(let url):
-                await MainActor.run {
-                    var drive = UTMQemuConfigurationDrive(forArchitecture: config.system.architecture, target: config.system.target, isExternal: true)
-                    drive.imageURL = url
-                    config.drives.append(drive)
-                }
-                break
-            case .failure(let err):
-                throw err
-            }
         }
     }
 }
@@ -178,6 +167,22 @@ struct RoundRectIconLabelStyle: LabelStyle {
 extension LabelStyle where Self == RoundRectIconLabelStyle {
     static var roundRectIcon: RoundRectIconLabelStyle {
         RoundRectIconLabelStyle()
+    }
+}
+
+private extension View {
+    /// Force an view to be unique in each update.
+    ///
+    /// On iOS 14 and under and macOS 11 and under, there is a SwiftUI bug
+    /// which causes a crash when a table is updated with multiple sections.
+    /// This workaround will (inefficently) force a redraw every refresh.
+    /// - Returns: some View
+    @ViewBuilder func uniqued() -> some View {
+        if #available(iOS 15, macOS 12, *) {
+            self
+        } else {
+            self.id(UUID())
+        }
     }
 }
 

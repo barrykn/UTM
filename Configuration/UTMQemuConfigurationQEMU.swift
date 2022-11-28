@@ -92,9 +92,6 @@ struct UTMQemuConfigurationQEMU: Codable {
             debugLogURL = dataURL.appendingPathComponent(QEMUPackageFileName.debugLog.rawValue)
             efiVarsURL = dataURL.appendingPathComponent(QEMUPackageFileName.efiVariables.rawValue)
         }
-        #if os(iOS)
-        hasHypervisor = false // no hypervisor on iOS
-        #endif
     }
     
     func encode(to encoder: Encoder) throws {
@@ -125,13 +122,13 @@ extension UTMQemuConfigurationQEMU {
             hasUefiBoot = true
             hasRNGDevice = true
         }
-        #if arch(arm64) && os(macOS)
+        #if arch(arm64)
         if architecture == .aarch64 {
-            hasHypervisor = true
+            hasHypervisor = jb_has_hypervisor()
         }
-        #elseif arch(x86_64) && os(macOS)
+        #elseif arch(x86_64)
         if architecture == .x86_64 {
-            hasHypervisor = true
+            hasHypervisor = jb_has_hypervisor()
         }
         #endif
     }

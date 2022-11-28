@@ -23,13 +23,13 @@ on:
         default: 'false'
 
 env:
-  BUILD_XCODE_PATH: /Applications/Xcode-beta.app
+  BUILD_XCODE_PATH: /Applications/Xcode_14.1.app
   INSTALL_REQUIREMENTS: false
 
 jobs:
   build-sysroot:
     name: Build Sysroot
-    runs-on: [self-hosted, macOS]
+    runs-on: [self-hosted, macOS, large]
     strategy:
       matrix:
         arch: [arm64, x86_64]
@@ -69,6 +69,8 @@ jobs:
       - name: Build Sysroot
         if: steps.cache-sysroot.outputs.cache-hit != 'true' || github.event.inputs.rebuild_sysroot == 'true'
         run: ./scripts/build_dependencies.sh -p ${{ matrix.platform }} -a ${{ matrix.arch }}
+        env:
+          NCPU: ${{ matrix.platform == 'ios-tci' && '1' || '0' }} # limit 1 CPU for TCI build due to memory issues, 0 = unlimited for other builds
       - name: Compress Sysroot
         if: steps.cache-sysroot.outputs.cache-hit != 'true' || github.event_name == 'release' || github.event.inputs.test_release == 'true'
         run: tar -acf sysroot.tgz sysroot*
@@ -284,6 +286,41 @@ jobs:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           repository: ${{ secrets.DISPATCH_ALTSTORE_REPO_NAME }}
           event-type: new-release
+  package-hv:
+    name: Package (iOS HV)
+    runs-on: macos-12
+    needs: build-utm
+    if: github.event_name == 'release' || github.event.inputs.test_release == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: UTM-ios-arm64
+      - name: Install ldid
+        run: brew install ldid
+      - name: Fakesign IPA
+        run: |
+          tar -xf UTM.xcarchive.tgz
+          ./scripts/package.sh ipa-hv UTM.xcarchive .
+          mv UTM.ipa UTM.HV.ipa
+      - name: Upload Artifact
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v3
+        with:
+          name: UTM-HV-ipa
+          path: UTM.HV.ipa
+      - name: Upload Release Asset
+        if: github.event_name == 'release'
+        uses: actions/upload-release-asset@v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: UTM.HV.ipa
+          asset_name: UTM.HV.ipa
+          asset_content_type: application/octet-stream
   package-deb:
     name: Package (iOS DEB)
     runs-on: macos-12

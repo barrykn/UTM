@@ -24,7 +24,7 @@ extension UTMData {
     }
     
     func stop(vm: UTMVirtualMachine) throws {
-        if vm.viewState.hasSaveState {
+        if vm.hasSaveState {
             vm.requestVmDeleteState()
         }
     }
@@ -46,8 +46,7 @@ extension UTMData {
         if let vc = vmVC as? VMDisplayMetalViewController {
             vc.keyboardView.insertText(text)
         } else if let vc = vmVC as? VMDisplayTerminalViewController {
-            //FIXME: terminal rewrite
-            //vc.sendData(fromCmdString: text)
+            vc.vmSerialPort.write(text.data(using: .nonLossyASCII)!)
         }
     }
 }

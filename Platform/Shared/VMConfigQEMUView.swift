@@ -48,14 +48,12 @@ struct VMConfigQEMUView: View {
         }
     }
     
-    private var supportsHypervisor: Bool {
-        #if arch(arm64)
-        return system.architecture == .aarch64
-        #elseif arch(x86_64)
-        return system.architecture == .x86_64
-        #else
-        return false
-        #endif
+    private var isMontereyOrHigher: Bool {
+        if #available(macOS 12, *) {
+            return true
+        } else {
+            return false
+        }
     }
     
     var body: some View {
@@ -82,11 +80,8 @@ struct VMConfigQEMUView: View {
                     Toggle("TPM Device", isOn: $config.hasTPMDevice)
                         .help("This is required to boot Windows 11.")
                     #endif
-                    #if os(macOS)
                     Toggle("Use Hypervisor", isOn: $config.hasHypervisor)
-                        .disabled(!supportsHypervisor)
                         .help("Only available if host architecture matches the target. Otherwise, TCG emulation is used.")
-                    #endif
                     Toggle("Use local time for base clock", isOn: $config.hasRTCLocalTime)
                         .help("If checked, use local time for RTC which is required for Windows. Otherwise, use UTC clock.")
                     Toggle("Force PS/2 controller", isOn: $config.hasPS2Controller)
@@ -102,12 +97,15 @@ struct VMConfigQEMUView: View {
                         showExportArgs.toggle()
                     }.modifier(VMShareItemModifier(isPresented: $showExportArgs, shareItem: exportArgs(fixedArgs)))
                     #if os(macOS)
-                    VStack {
-                        ForEach(fixedArgs) { arg in
-                            TextField("", text: .constant(arg.string))
-                        }.disabled(true)
-                        CustomArguments(config: $config)
-                        NewArgumentTextField(config: $config)
+                    // SwiftUI bug: on macOS 11, the ForEach crashes during save
+                    if isMontereyOrHigher || !data.busy {
+                        VStack {
+                            ForEach(fixedArgs) { arg in
+                                TextField("", text: .constant(arg.string))
+                            }.disabled(true)
+                            CustomArguments(config: $config)
+                            NewArgumentTextField(config: $config)
+                        }
                     }
                     #else
                     List {

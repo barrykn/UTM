@@ -35,15 +35,15 @@ struct UTMAppleConfigurationVirtualization: Codable {
         }
     }
     
-    var hasAudio: Bool = true
+    var hasAudio: Bool = false
     
     var hasBalloon: Bool = true
     
     var hasEntropy: Bool = true
     
-    var hasKeyboard: Bool = true
+    var hasKeyboard: Bool = false
     
-    var pointer: PointerDevice = .mouse
+    var hasPointer: Bool = false
     
     var hasRosetta: Bool?
     
@@ -54,7 +54,7 @@ struct UTMAppleConfigurationVirtualization: Codable {
         case hasBalloon = "Balloon"
         case hasEntropy = "Entropy"
         case hasKeyboard = "Keyboard"
-        case pointer = "Pointer"
+        case hasPointer = "Pointer"
         case rosetta = "Rosetta"
         case hasClipboardSharing = "ClipboardSharing"
     }
@@ -68,13 +68,15 @@ struct UTMAppleConfigurationVirtualization: Codable {
         hasBalloon = try values.decode(Bool.self, forKey: .hasBalloon)
         hasEntropy = try values.decode(Bool.self, forKey: .hasEntropy)
         hasKeyboard = try values.decode(Bool.self, forKey: .hasKeyboard)
-        pointer = try values.decode(PointerDevice.self, forKey: .pointer)
-        #if arch(arm64)
+        if let legacyPointer = try? values.decode(PointerDevice.self, forKey: .hasPointer) {
+            hasPointer = legacyPointer != .disabled
+        } else {
+            hasPointer = try values.decode(Bool.self, forKey: .hasPointer)
+        }
         if #available(macOS 13, *) {
             hasRosetta = try values.decodeIfPresent(Bool.self, forKey: .rosetta)
             hasClipboardSharing = try values.decodeIfPresent(Bool.self, forKey: .hasClipboardSharing) ?? false
         }
-        #endif
     }
     
     func encode(to encoder: Encoder) throws {
@@ -83,7 +85,7 @@ struct UTMAppleConfigurationVirtualization: Codable {
         try container.encode(hasBalloon, forKey: .hasBalloon)
         try container.encode(hasEntropy, forKey: .hasEntropy)
         try container.encode(hasKeyboard, forKey: .hasKeyboard)
-        try container.encode(pointer, forKey: .pointer)
+        try container.encode(hasPointer, forKey: .hasPointer)
         try container.encodeIfPresent(hasRosetta, forKey: .rosetta)
         try container.encode(hasClipboardSharing, forKey: .hasClipboardSharing)
     }
@@ -101,7 +103,7 @@ extension UTMAppleConfigurationVirtualization {
         if #available(macOS 12, *) {
             hasAudio = oldConfig.isAudioEnabled
             hasKeyboard = oldConfig.isKeyboardEnabled
-            pointer = oldConfig.isPointingEnabled ? .mouse : .disabled
+            hasPointer = oldConfig.isPointingEnabled
         }
     }
 }
@@ -111,53 +113,63 @@ extension UTMAppleConfigurationVirtualization {
 @available(iOS, unavailable, message: "Apple Virtualization not available on iOS")
 @available(macOS 11, *)
 extension UTMAppleConfigurationVirtualization {
-    func fillVZConfiguration(_ vzconfig: VZVirtualMachineConfiguration) {
+    func fillVZConfiguration(_ vzconfig: VZVirtualMachineConfiguration) throws {
         if hasBalloon {
             vzconfig.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
         }
         if hasEntropy {
             vzconfig.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
         }
-        #if arch(arm64)
         if #available(macOS 12, *) {
             if hasAudio {
-                let audioConfiguration = VZVirtioSoundDeviceConfiguration()
+                let audioInputConfiguration = VZVirtioSoundDeviceConfiguration()
                 let audioInput = VZVirtioSoundDeviceInputStreamConfiguration()
                 audioInput.source = VZHostAudioInputStreamSource()
+                audioInputConfiguration.streams = [audioInput]
+                let audioOutputConfiguration = VZVirtioSoundDeviceConfiguration()
                 let audioOutput = VZVirtioSoundDeviceOutputStreamConfiguration()
                 audioOutput.sink = VZHostAudioOutputStreamSink()
-                audioConfiguration.streams = [audioInput, audioOutput]
-                vzconfig.audioDevices = [audioConfiguration]
+                audioOutputConfiguration.streams = [audioOutput]
+                vzconfig.audioDevices = [audioInputConfiguration, audioOutputConfiguration]
             }
             if hasKeyboard {
                 vzconfig.keyboards = [VZUSBKeyboardConfiguration()]
             }
-            if pointer != .disabled {
-                let device: VZPointingDeviceConfiguration
-                if #available(macOS 13, *) {
-                    // FIXME: implement trackpad
-                    device = VZUSBScreenCoordinatePointingDeviceConfiguration()
-                } else {
-                    device = VZUSBScreenCoordinatePointingDeviceConfiguration()
-                }
-                vzconfig.pointingDevices = [device]
+            if hasPointer {
+                vzconfig.pointingDevices = [VZUSBScreenCoordinatePointingDeviceConfiguration()]
+            }
+        } else {
+            if hasAudio || hasKeyboard || hasPointer {
+                throw UTMAppleConfigurationError.featureNotSupported
             }
         }
-        #endif
         if #available(macOS 13, *) {
             #if arch(arm64)
-            if hasRosetta == true, let rosettaDirectoryShare = try? VZLinuxRosettaDirectoryShare() {
+            if hasRosetta == true {
+                let rosettaDirectoryShare = try VZLinuxRosettaDirectoryShare()
                 let fileSystemDevice = VZVirtioFileSystemDeviceConfiguration(tag: "rosetta")
                 fileSystemDevice.share = rosettaDirectoryShare
                 vzconfig.directorySharingDevices.append(fileSystemDevice)
+            }
+            #else
+            if hasRosetta == true {
+                throw UTMAppleConfigurationError.rosettaNotSupported
             }
             #endif
             if hasClipboardSharing {
                 let spiceClipboardAgent = VZSpiceAgentPortAttachment()
                 spiceClipboardAgent.sharesClipboard = true
-                let serialConfig = VZVirtioConsoleDeviceSerialPortConfiguration()
-                serialConfig.attachment = spiceClipboardAgent
-                vzconfig.serialPorts.append(serialConfig)
+                let consolePort = VZVirtioConsolePortConfiguration()
+                consolePort.name = VZSpiceAgentPortAttachment.spiceAgentPortName
+                consolePort.attachment = spiceClipboardAgent
+                consolePort.isConsole = false
+                let consoleDevice = VZVirtioConsoleDeviceConfiguration()
+                consoleDevice.ports[0] = consolePort
+                vzconfig.consoleDevices.append(consoleDevice)
+            }
+        } else {
+            if hasRosetta == true || hasClipboardSharing {
+                throw UTMAppleConfigurationError.featureNotSupported
             }
         }
     }

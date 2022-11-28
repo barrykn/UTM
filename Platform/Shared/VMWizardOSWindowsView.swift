@@ -28,11 +28,21 @@ struct VMWizardOSWindowsView: View {
 #endif
         List {
             Section {
-                Toggle("Import VHDX Image", isOn: $useVhdx)
-                if useVhdx {
-                    Link("Download Windows 11 for ARM64 Preview VHDX", destination: URL(string: "https://www.microsoft.com/en-us/software-download/windowsinsiderpreviewARM64")!)
-                } else {
-                    Link("Generate Windows Installer ISO", destination: URL(string: "https://uupdump.net/")!)
+                Toggle("Install Windows 10 or higher", isOn: $wizardState.isWindows10OrHigher)
+                    .onChange(of: wizardState.isWindows10OrHigher) { newValue in
+                        if newValue {
+                            wizardState.systemBootUefi = true
+                            wizardState.isGuestToolsInstallRequested = true
+                        } else {
+                            wizardState.isGuestToolsInstallRequested = false
+                        }
+                    }
+                
+                if wizardState.isWindows10OrHigher {
+                    Toggle("Import VHDX Image", isOn: $useVhdx)
+                    Link(destination: URL(string: "https://docs.getutm.app/guides/windows/")!) {
+                        Label("Windows Install Guide", systemImage: "link")
+                    }.buttonStyle(.borderless)
                 }
             } header: {
                 Text("Image File Type")
@@ -42,47 +52,47 @@ struct VMWizardOSWindowsView: View {
                 if #available(iOS 15, macOS 12, *) {
                     if wizardState.windowsBootVhdx != nil {
                         useVhdx = true
-                    } else {
-                        #if arch(arm64)
-                        useVhdx = wizardState.useVirtualization
-                        #endif
                     }
                 }
             }
             
-            DetailedSection("", description: "Some older systems do not support UEFI boot, such as Windows 7 and below.") {
-                Toggle("UEFI Boot", isOn: $wizardState.systemBootUefi)
-            }
-            
             Section {
                 if useVhdx {
-                    Text("Boot VHDX Image:")
-                    
+                    FileBrowseField(url: $wizardState.windowsBootVhdx, isFileImporterPresented: $isFileImporterPresented, hasClearButton: false)
+                        .disabled(wizardState.isBusy)
                 } else {
-                    Text("Boot ISO Image:")
+                    FileBrowseField(url: $wizardState.bootImageURL, isFileImporterPresented: $isFileImporterPresented, hasClearButton: false)
+                        .disabled(wizardState.isBusy)
                 }
-                Text((useVhdx ? wizardState.windowsBootVhdx?.lastPathComponent : wizardState.bootImageURL?.lastPathComponent) ?? "Empty")
-                    .font(.caption)
-                Button {
-                    isFileImporterPresented.toggle()
-                } label: {
-                    Text("Browse…")
-                }
-                .disabled(wizardState.isBusy)
-                .padding(.leading, 1)
                 
                 if wizardState.isBusy {
                     Spinner(size: .large)
                 }
             } header: {
-                Text("File Imported")
-            } footer: {
-                if #available(iOS 15, macOS 12, *) {
-                    Text("Hint: For the best Windows experience, make sure to download and install the latest [SPICE tools and QEMU drivers](https://mac.getutm.app/support/).")
+                if useVhdx {
+                    Text("Boot VHDX Image")
+                } else {
+                    Text("Boot ISO Image")
+                }
+            }
+            
+            if !wizardState.isWindows10OrHigher {
+                DetailedSection("", description: "Some older systems do not support UEFI boot, such as Windows 7 and below.") {
+                    Toggle("UEFI Boot", isOn: $wizardState.systemBootUefi)
+                }
+            }
+            
+            // Disabled on iOS 14 due to a SwiftUI layout bug
+            // Disabled for non-Windows 10 installs due to autounattend version
+            if #available(iOS 15, *), wizardState.isWindows10OrHigher {
+                DetailedSection("", description: "Download and mount the guest support package for Windows. This is required for some features including dynamic resolution and clipboard sharing.") {
+                    Toggle("Install drivers and SPICE tools", isOn: $wizardState.isGuestToolsInstallRequested)
                 }
             }
         }
+        #if os(iOS)
         .navigationTitle(Text("Windows"))
+        #endif
         .fileImporter(isPresented: $isFileImporterPresented, allowedContentTypes: [.data], onCompletion: processImage)
     }
     
