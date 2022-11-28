@@ -25,9 +25,8 @@
 @property (weak, nonatomic) id<VMDisplayViewControllerDelegate> delegate;
 
 @property (nonatomic) BOOL hasAutoSave;
-@property (nonatomic, readwrite) BOOL prefersStatusBarHidden;
-
-@property (nonatomic, strong) NSMutableArray<NSObject *> *notifications;
+@property (nonatomic, readwrite) BOOL prefersHomeIndicatorAutoHidden;
+@property (nonatomic, readwrite) BOOL prefersPointerLocked;
 
 - (void)showKeyboard;
 - (void)hideKeyboard;

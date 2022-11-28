@@ -41,7 +41,7 @@ struct UTMAppleConfigurationSystem: Codable {
     /// The RAM of the guest in MiB.
     var memorySize: Int = 4096
     
-    var boot: UTMAppleConfigurationBoot = try! .init(for: .macOS)
+    var boot: UTMAppleConfigurationBoot = try! .init(for: .none)
     
     var macPlatform: UTMAppleConfigurationMacPlatform?
     
@@ -103,6 +103,9 @@ extension UTMAppleConfigurationSystem {
             boot.macRecoveryIpswURL = oldConfig.macRecoveryIpswURL
         }
         #endif
+        if boot.operatingSystem == .linux {
+            genericPlatform = UTMAppleConfigurationGenericPlatform()
+        }
     }
 }
 
@@ -111,7 +114,7 @@ extension UTMAppleConfigurationSystem {
 @available(iOS, unavailable, message: "Apple Virtualization not available on iOS")
 @available(macOS 11, *)
 extension UTMAppleConfigurationSystem {
-    func fillVZConfiguration(_ vzconfig: VZVirtualMachineConfiguration) {
+    func fillVZConfiguration(_ vzconfig: VZVirtualMachineConfiguration) throws {
         if cpuCount > 0 {
             vzconfig.cpuCount = cpuCount
         } else {
@@ -121,17 +124,23 @@ extension UTMAppleConfigurationSystem {
         }
         vzconfig.memorySize = UInt64(memorySize) * bytesInMib
         vzconfig.bootLoader = boot.vzBootloader()
-        #if arch(arm64)
-        if #available(macOS 12, *), let macPlatform = macPlatform {
-            if let platform = macPlatform.vzMacPlatform() {
+        if boot.operatingSystem == .macOS {
+            #if arch(arm64)
+            if #available(macOS 12, *),
+               let macPlatform = macPlatform,
+               let platform = macPlatform.vzMacPlatform() {
                 vzconfig.platform = platform
+            } else {
+                throw UTMAppleConfigurationError.platformUnsupported
             }
+            #else
+            throw UTMAppleConfigurationError.platformUnsupported
+            #endif
         }
-        #endif
-        if #available(macOS 12, *), let genericPlatform = genericPlatform {
-            if let platform = genericPlatform.vzGenericPlatform() {
-                vzconfig.platform = platform
-            }
+        if #available(macOS 12, *),
+           let genericPlatform = genericPlatform,
+           let platform = genericPlatform.vzGenericPlatform() {
+            vzconfig.platform = platform
         }
     }
     

@@ -17,6 +17,7 @@
 import Foundation
 
 /// Bridge from Swift configuration backend to Objective-C
+/// Note: We cannot enforce @MainActor here so it is up to the caller to ensure main thread access.
 /// This should be temporary and be removed after the Objective-C backend is fully migrated.
 @objc class UTMConfigurationWrapper: NSObject {
     #if !os(macOS)
@@ -37,14 +38,18 @@ import Foundation
     }
     
     @objc var isAppleVirtualization: Bool {
+        #if os(iOS)
+        false
+        #else
         wrappedValue is UTMAppleConfiguration
+        #endif
     }
     
     @objc var name: String {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.information.name
+            return qemuConfig!._information.name
         } else if wrappedValue is UTMAppleConfiguration {
-            return appleConfig!.information.name
+            return appleConfig!._information.name
         } else if let placeholderName = placeholderName {
             return placeholderName
         } else {
@@ -54,9 +59,9 @@ import Foundation
     
     @objc var uuid: UUID {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.information.uuid
+            return qemuConfig!._information.uuid
         } else if wrappedValue is UTMAppleConfiguration {
-            return appleConfig!.information.uuid
+            return appleConfig!._information.uuid
         } else if let placeholderUuid = placeholderUuid {
             return placeholderUuid
         } else {
@@ -66,9 +71,9 @@ import Foundation
     
     @objc var iconURL: URL? {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.information.iconURL
+            return qemuConfig!._information.iconURL
         } else if wrappedValue is UTMAppleConfiguration {
-            return appleConfig!.information.iconURL
+            return appleConfig!._information.iconURL
         } else {
             return placeholderIconURL
         }
@@ -76,7 +81,7 @@ import Foundation
     
     @objc var qemuHasDebugLog: Bool {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.qemu.hasDebugLog
+            return qemuConfig!._qemu.hasDebugLog
         } else if wrappedValue is UTMAppleConfiguration {
             return false
         } else {
@@ -86,7 +91,7 @@ import Foundation
     
     @objc var qemuDebugLogURL: URL? {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.qemu.debugLogURL
+            return qemuConfig!._qemu.debugLogURL
         } else {
             fatalError()
         }
@@ -94,13 +99,14 @@ import Foundation
     
     @objc var qemuArchitecture: String {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.system.architecture.rawValue
+            return qemuConfig!._system.architecture.rawValue
         } else {
             fatalError()
         }
     }
     
-    @objc var qemuArguments: [String] {
+    // FIXME: @MainActor here is a HACK and does nothing in Obj-C!
+    @MainActor @objc var qemuArguments: [String] {
         if wrappedValue is UTMQemuConfiguration {
             return qemuConfig!.allArguments.map({ $0.string })
         } else {
@@ -108,7 +114,8 @@ import Foundation
         }
     }
     
-    @objc var qemuResources: [URL] {
+    // FIXME: @MainActor here is a HACK and does nothing in Obj-C!
+    @MainActor @objc var qemuResources: [URL] {
         if wrappedValue is UTMQemuConfiguration {
             return qemuConfig!.allArguments.compactMap({ $0.fileUrls }).flatMap({ $0 })
         } else {
@@ -119,7 +126,7 @@ import Foundation
     @objc var qemuIsDisposable: Bool {
         get {
             if wrappedValue is UTMQemuConfiguration {
-                return qemuConfig!.qemu.isDisposable
+                return qemuConfig!._qemu.isDisposable
             } else {
                 fatalError()
             }
@@ -127,7 +134,7 @@ import Foundation
         
         set {
             if wrappedValue is UTMQemuConfiguration {
-                qemuConfig!.qemu.isDisposable = newValue
+                qemuConfig!._qemu.isDisposable = newValue
             } else {
                 fatalError()
             }
@@ -137,7 +144,7 @@ import Foundation
     @objc var qemuSnapshotName: String? {
         get {
             if wrappedValue is UTMQemuConfiguration {
-                return qemuConfig!.qemu.snapshotName
+                return qemuConfig!._qemu.snapshotName
             } else {
                 fatalError()
             }
@@ -145,14 +152,15 @@ import Foundation
         
         set {
             if wrappedValue is UTMQemuConfiguration {
-                qemuConfig!.qemu.snapshotName = newValue
+                qemuConfig!._qemu.snapshotName = newValue
             } else {
                 fatalError()
             }
         }
     }
     
-    @objc var qemuSpiceSocketURL: URL {
+    // FIXME: @MainActor here is a HACK and does nothing in Obj-C!
+    @MainActor @objc var qemuSpiceSocketURL: URL {
         if wrappedValue is UTMQemuConfiguration {
             return qemuConfig!.spiceSocketURL
         } else {
@@ -160,27 +168,17 @@ import Foundation
         }
     }
     
-    @objc var qemuInputLegacy: Bool {
-        if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.input.usbBusSupport == .disabled || qemuConfig!.qemu.hasPS2Controller
-        } else {
-            fatalError()
-        }
-    }
-    
-    //FIXME: support multiple sound cards
     @objc var qemuHasAudio: Bool {
         if wrappedValue is UTMQemuConfiguration {
-            return !qemuConfig!.sound.isEmpty
+            return !qemuConfig!._sound.isEmpty
         } else {
             fatalError()
         }
     }
     
-    //FIXME: support multiple displays
     @objc var qemuHasDisplay: Bool {
         if wrappedValue is UTMQemuConfiguration {
-            return !qemuConfig!.displays.isEmpty
+            return !qemuConfig!._displays.isEmpty
         } else {
             fatalError()
         }
@@ -188,39 +186,7 @@ import Foundation
     
     @objc var qemuHasTerminal: Bool {
         if wrappedValue is UTMQemuConfiguration {
-            return !(qemuConfig!.serials.filter { $0.mode == .builtin }).isEmpty
-        } else {
-            fatalError()
-        }
-    }
-    
-    @objc var qemuDisplayUpscaler: MTLSamplerMinMagFilter {
-        if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.displays.first!.upscalingFilter.metalSamplerMinMagFilter
-        } else {
-            fatalError()
-        }
-    }
-    
-    @objc var qemuDisplayDownscaler: MTLSamplerMinMagFilter {
-        if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.displays.first!.downscalingFilter.metalSamplerMinMagFilter
-        } else {
-            fatalError()
-        }
-    }
-    
-    @objc var qemuDisplayIsDynamicResolution: Bool {
-        if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.displays.first!.isDynamicResolution
-        } else {
-            fatalError()
-        }
-    }
-    
-    @objc var qemuDisplayIsNativeResolution: Bool {
-        if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.displays.first!.isNativeResolution
+            return !(qemuConfig!._serials.filter { $0.mode == .builtin }).isEmpty
         } else {
             fatalError()
         }
@@ -228,7 +194,7 @@ import Foundation
     
     @objc var qemuHasClipboardSharing: Bool {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.sharing.hasClipboardSharing
+            return qemuConfig!._sharing.hasClipboardSharing
         } else {
             fatalError()
         }
@@ -236,7 +202,7 @@ import Foundation
     
     @objc var qemuHasWebdavSharing: Bool {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.sharing.directoryShareMode == .webdav
+            return qemuConfig!._sharing.directoryShareMode == .webdav
         } else {
             fatalError()
         }
@@ -244,7 +210,7 @@ import Foundation
     
     @objc var qemuIsDirectoryShareReadOnly: Bool {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.sharing.isDirectoryShareReadOnly
+            return qemuConfig!._sharing.isDirectoryShareReadOnly
         } else {
             fatalError()
         }
@@ -252,7 +218,7 @@ import Foundation
     
     @objc var qemuConsoleBackgroundColor: String {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.serials.first!.terminal!.backgroundColor ?? "#000000"
+            return qemuConfig!._serials.first!.terminal!.backgroundColor ?? "#000000"
         } else {
             fatalError()
         }
@@ -260,7 +226,7 @@ import Foundation
     
     @objc var qemuConsoleForegroundColor: String {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.serials.first!.terminal!.foregroundColor ?? "#ffffff"
+            return qemuConfig!._serials.first!.terminal!.foregroundColor ?? "#ffffff"
         } else {
             fatalError()
         }
@@ -268,7 +234,7 @@ import Foundation
     
     @objc var qemuConsoleFont: String {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.serials.first!.terminal!.font.rawValue
+            return qemuConfig!._serials.first!.terminal!.font.rawValue
         } else {
             fatalError()
         }
@@ -276,7 +242,7 @@ import Foundation
     
     @objc var qemuConsoleFontSize: Int {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.serials.first!.terminal!.fontSize
+            return qemuConfig!._serials.first!.terminal!.fontSize
         } else {
             fatalError()
         }
@@ -284,7 +250,7 @@ import Foundation
     
     @objc var qemuConsoleResizeCommand: String? {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.serials.first!.terminal!.resizeCommand
+            return qemuConfig!._serials.first!.terminal!.resizeCommand
         } else {
             fatalError()
         }
@@ -292,7 +258,7 @@ import Foundation
     
     @objc var qemuShouldWaitForeverForConnect: Bool {
         if wrappedValue is UTMQemuConfiguration {
-            return qemuConfig!.serials.contains { serial in
+            return qemuConfig!._serials.contains { serial in
                 (serial.mode == .tcpServer || serial.mode == .tcpServer) &&
                 serial.isWaitForConnection == true
             }
@@ -306,16 +272,18 @@ import Foundation
     }
     
     @objc init?(from packageURL: URL) {
-        if let config = try? UTMQemuConfiguration.load(from: packageURL) {
+        do {
+            let config = try UTMQemuConfiguration.load(from: packageURL)
             self.wrappedValue = config
-        } else {
+        } catch {
+            logger.error("Error loading config from \(packageURL.path): \(error)")
             return nil
         }
     }
     
-    @objc init(placeholderFor name: String) {
+    @objc init(placeholderFor name: String, uuid: UUID? = nil) {
         self.placeholderName = name
-        self.placeholderUuid = UUID()
+        self.placeholderUuid = uuid ?? UUID()
         self.placeholderIconURL = nil
     }
     
@@ -334,7 +302,7 @@ import Foundation
     }
     
     @objc func qemuEnsureEfiVarsAvailable(completion: @escaping (Error?) -> Void) {
-        guard let qemuConfig = qemuConfig, let efiVarsURL = qemuConfig.qemu.efiVarsURL else {
+        guard let qemuConfig = qemuConfig, let efiVarsURL = qemuConfig._qemu.efiVarsURL else {
             completion(nil)
             return
         }
@@ -344,7 +312,7 @@ import Foundation
         }
         Task {
             do {
-                _ = try await qemuConfig.qemu.saveData(to: efiVarsURL.deletingLastPathComponent(), for: qemuConfig.system)
+                _ = try await qemuConfig._qemu.saveData(to: efiVarsURL.deletingLastPathComponent(), for: qemuConfig._system)
                 completion(nil)
             } catch {
                 completion(error)

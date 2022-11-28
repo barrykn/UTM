@@ -17,7 +17,7 @@
 import Foundation
 
 /// Build QEMU arguments from config
-extension UTMQemuConfiguration {
+@MainActor extension UTMQemuConfiguration {
     /// Helper function to generate a final argument
     /// - Parameter string: Argument fragment
     /// - Returns: Final argument fragment
@@ -60,17 +60,18 @@ extension UTMQemuConfiguration {
         resourceURL
         f()
         f("-S") // startup stopped
+        spiceArguments
+        networkArguments
         displayArguments
         serialArguments
         cpuArguments
         machineArguments
         architectureArguments
         soundArguments
-        if input.usbBusSupport != .disabled {
+        if isUsbUsed {
             usbArguments
         }
         drivesArguments
-        networkArguments
         sharingArguments
         miscArguments
     }
@@ -91,7 +92,7 @@ extension UTMQemuConfiguration {
         }
     }
     
-    @QEMUArgumentBuilder private var displayArguments: [QEMUArgument] {
+    @QEMUArgumentBuilder private var spiceArguments: [QEMUArgument] {
         f("-spice")
         "unix=on"
         "addr="
@@ -106,25 +107,26 @@ extension UTMQemuConfiguration {
         f("spiceport,id=org.qemu.monitor.qmp,name=org.qemu.monitor.qmp.0")
         f("-mon")
         f("chardev=org.qemu.monitor.qmp,mode=control")
-        if isSparc {
-            if !displays.isEmpty {
-                f("-vga")
-                displays[0].hardware
-                if let vgaRamSize = displays[0].vgaRamMib {
-                    "vgamem_mb=\(vgaRamSize)"
-                }
-                f()
-            }
-        } else { // disable -vga and other default devices
+        if !isSparc { // disable -vga and other default devices
             // prevent QEMU default devices, which leads to duplicate CD drive (fix #2538)
             // see https://github.com/qemu/qemu/blob/6005ee07c380cbde44292f5f6c96e7daa70f4f7d/docs/qdev-device-use.txt#L382
             f("-nodefaults")
             f("-vga")
             f("none")
         }
+    }
+    
+    @QEMUArgumentBuilder private var displayArguments: [QEMUArgument] {
         if displays.isEmpty {
             f("-nographic")
-        } else if !isSparc { // SPARC uses -vga (above)
+        } else if isSparc { // only one display supported
+            f("-vga")
+            displays[0].hardware
+            if let vgaRamSize = displays[0].vgaRamMib {
+                "vgamem_mb=\(vgaRamSize)"
+            }
+            f()
+        } else {
             for display in displays {
                 f("-device")
                 display.hardware
@@ -153,9 +155,20 @@ extension UTMQemuConfiguration {
             case .builtin:
                 f("spiceport,id=term\(i),name=com.utmapp.terminal.\(i)")
             case .tcpClient:
-                f("socket,id=term\(i),port=\(serials[i].tcpPort ?? 1234),host=\(serials[i].tcpHostAddress ?? "example.com"),server=off")
+                "socket"
+                "id=term\(i)"
+                "port=\(serials[i].tcpPort ?? 1234)"
+                "host=\(serials[i].tcpHostAddress ?? "example.com")"
+                "server=off"
+                f()
             case .tcpServer:
-                f("socket,id=term\(i),port=\(serials[i].tcpPort ?? 1234),server=on,wait=\((serials[i].isWaitForConnection ?? false) ? "on" : "off")")
+                "socket"
+                "id=term\(i)"
+                "port=\(serials[i].tcpPort ?? 1234)"
+                "host=\(serials[i].isRemoteConnectionAllowed == true ? "0.0.0.0" : "127.0.0.1")"
+                "server=on"
+                "wait=\(serials[i].isWaitForConnection == true ? "on" : "off")"
+                f()
             #if os(macOS)
             case .ptty:
                 f("pty,id=term\(i)")
@@ -181,7 +194,7 @@ extension UTMQemuConfiguration {
     @QEMUArgumentBuilder private var cpuArguments: [QEMUArgument] {
         if system.cpu.rawValue == system.architecture.cpuType.default.rawValue {
             // if default and not hypervisor, we don't pass any -cpu argument for x86 and use host for ARM
-            if qemu.hasHypervisor {
+            if isHypervisorUsed {
                 #if !arch(x86_64)
                 f("-cpu")
                 f("host")
@@ -196,20 +209,13 @@ extension UTMQemuConfiguration {
                 f("cortex-a15")
             }
         } else {
-            var flags = ""
-            for flag in system.cpuFlagsAdd {
-                flags += ",+\(flag)"
-            }
-            for flag in system.cpuFlagsRemove {
-                flags += ",-\(flag)"
-            }
             f("-cpu")
             system.cpu
             for flag in system.cpuFlagsAdd {
-                "+\(flag)"
+                "+\(flag.rawValue)"
             }
             for flag in system.cpuFlagsRemove {
-                "-\(flag)"
+                "-\(flag.rawValue)"
             }
             f()
         }
@@ -263,11 +269,19 @@ extension UTMQemuConfiguration {
         #endif
     }
     
+    private var isHypervisorUsed: Bool {
+        system.architecture.hasHypervisorSupport && qemu.hasHypervisor
+    }
+    
+    private var isUsbUsed: Bool {
+        system.architecture.hasUsbSupport && system.target.hasUsbSupport && input.usbBusSupport != .disabled
+    }
+    
     @QEMUArgumentBuilder private var machineArguments: [QEMUArgument] {
         f("-machine")
         system.target
         f(machineProperties)
-        if qemu.hasHypervisor {
+        if isHypervisorUsed {
             f("-accel")
             f("hvf")
         } else {
@@ -295,7 +309,7 @@ extension UTMQemuConfiguration {
         if target.hasPrefix("pc") || target.hasPrefix("q35") {
             properties = properties.appendingDefaultPropertyName("vmport", value: "off")
             // disable PS/2 emulation if we are not legacy input and it's not explicitly enabled
-            if input.usbBusSupport != .disabled && !qemu.hasPS2Controller {
+            if isUsbUsed && !qemu.hasPS2Controller {
                 properties = properties.appendingDefaultPropertyName("i8042", value: "off")
             }
         }
@@ -307,7 +321,7 @@ extension UTMQemuConfiguration {
                 properties = properties.appendingDefaultPropertyName("highmem", value: "off")
             }
             // required to boot Windows ARM on TCG
-            if system.architecture == .aarch64 && !qemu.hasHypervisor {
+            if system.architecture == .aarch64 && !isHypervisorUsed {
                 properties = properties.appendingDefaultPropertyName("virtualization", value: "on")
             }
         }
@@ -478,7 +492,7 @@ extension UTMQemuConfiguration {
         } else if drive.interface == .usb {
             f("-device")
             // use usb 3 bus for virt system, unless using legacy input setting (this mirrors the code in argsForUsb)
-            let isUsb3 = input.usbBusSupport != .disabled && system.target.rawValue.hasPrefix("virt")
+            let isUsb3 = isUsbUsed && system.target.rawValue.hasPrefix("virt")
             "usb-storage"
             "drive=drive\(drive.id)"
             "removable=\(isRemovable)"
@@ -503,6 +517,8 @@ extension UTMQemuConfiguration {
                 busindex += 1
                 "drive=drive\(drive.id)"
                 f()
+            } else {
+                realInterface = drive.interface
             }
         } else {
             realInterface = drive.interface
@@ -532,9 +548,13 @@ extension UTMQemuConfiguration {
             "media=disk"
         }
         "id=drive\(drive.id)"
-        if !drive.isExternal && drive.imageURL != nil {
+        if let imageURL = drive.imageURL {
             "file="
-            drive.imageURL!
+            imageURL
+        }
+        if drive.isReadOnly {
+            "readonly=on"
+        } else if !drive.isExternal {
             "discard=unmap"
             "detect-zeroes=unmap"
         }
@@ -675,8 +695,15 @@ extension UTMQemuConfiguration {
         }
     }
     
+    private var isAgentUsed: Bool {
+        guard system.architecture.hasAgentSupport else {
+            return false
+        }
+        return sharing.hasClipboardSharing || sharing.directoryShareMode == .webdav || displays.contains(where: { $0.isDynamicResolution })
+    }
+    
     @QEMUArgumentBuilder private var sharingArguments: [QEMUArgument] {
-        if sharing.hasClipboardSharing || sharing.directoryShareMode == .webdav || displays.contains(where: { $0.isDynamicResolution }) {
+        if isAgentUsed {
             f("-device")
             f("virtio-serial")
             f("-device")
@@ -688,26 +715,27 @@ extension UTMQemuConfiguration {
                 f("virtserialport,chardev=charchannel1,id=channel1,name=org.spice-space.webdav.0")
                 f("-chardev")
                 f("spiceport,name=org.spice-space.webdav.0,id=charchannel1")
-            } else if sharing.directoryShareMode == .virtfs, let url = sharing.directoryShareUrl {
-                f("-fsdev")
-                "local"
-                "id=virtfs0"
-                "path="
-                url
-                "security_model=mapped-xattr"
-                if sharing.isDirectoryShareReadOnly {
-                    "readonly=on"
-                }
-                f()
-                f("-device")
-                if system.architecture == .s390x {
-                    "virtio-9p-ccw"
-                } else {
-                    "virtio-9p-pci"
-                }
-                "fsdev=virtfs0"
-                "mount_tag=share"
             }
+        }
+        if system.architecture.hasSharingSupport && sharing.directoryShareMode == .virtfs, let url = sharing.directoryShareUrl {
+            f("-fsdev")
+            "local"
+            "id=virtfs0"
+            "path="
+            url
+            "security_model=mapped-xattr"
+            if sharing.isDirectoryShareReadOnly {
+                "readonly=on"
+            }
+            f()
+            f("-device")
+            if system.architecture == .s390x {
+                "virtio-9p-ccw"
+            } else {
+                "virtio-9p-pci"
+            }
+            "fsdev=virtfs0"
+            "mount_tag=share"
         }
     }
     
@@ -739,7 +767,7 @@ extension UTMQemuConfiguration {
 
 private extension String {
     func appendingDefaultPropertyName(_ name: String, value: String) -> String {
-        if !self.contains("name" + "=") {
+        if !self.contains(name + "=") {
             return self.appending("\(self.count > 0 ? "," : "")\(name)=\(value)")
         } else {
             return self

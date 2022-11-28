@@ -79,6 +79,56 @@ class VMDisplayQemuWindowController: VMDisplayWindowController {
         }
         super.enterSuspended(isBusy: busy)
     }
+    
+    override func windowDidLoad() {
+        setupStopButtonMenu()
+        super.windowDidLoad()
+    }
+}
+
+// MARK: - Stop menu
+extension VMDisplayQemuWindowController {
+    private func setupStopButtonMenu() {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let item1 = NSMenuItem()
+        item1.title = NSLocalizedString("Request power down", comment: "VMDisplayQemuDisplayController")
+        item1.toolTip = NSLocalizedString("Sends power down request to the guest. This simulates pressing the power button on a PC.", comment: "VMDisplayQemuDisplayController")
+        item1.target = self
+        item1.action = #selector(requestPowerDown)
+        menu.addItem(item1)
+        let item2 = NSMenuItem()
+        item2.title = NSLocalizedString("Force shut down", comment: "VMDisplayQemuDisplayController")
+        item2.toolTip = NSLocalizedString("Tells the VM process to shut down with risk of data corruption. This simulates holding down the power button on a PC.", comment: "VMDisplayQemuDisplayController")
+        item2.target = self
+        item2.action = #selector(qmpShutDown)
+        menu.addItem(item2)
+        let item3 = NSMenuItem()
+        item3.title = NSLocalizedString("Force kill", comment: "VMDisplayQemuDisplayController")
+        item3.toolTip = NSLocalizedString("Force kill the VM process with high risk of data corruption.", comment: "VMDisplayQemuDisplayController")
+        item3.target = self
+        item3.action = #selector(qmpForceKill)
+        menu.addItem(item3)
+        stopToolbarItem.menu = menu
+    }
+    
+    @MainActor @objc private func requestPowerDown(sender: AnyObject) {
+        qemuVM.requestGuestPowerDown()
+    }
+    
+    @MainActor @objc private func qmpShutDown(sender: AnyObject) {
+        let prev = isPowerForce
+        isPowerForce = false
+        stopButtonPressed(sender)
+        isPowerForce = prev
+    }
+    
+    @MainActor @objc private func qmpForceKill(sender: AnyObject) {
+        let prev = isPowerForce
+        isPowerForce = true
+        stopButtonPressed(sender)
+        isPowerForce = prev
+    }
 }
 
 // MARK: - Removable drives
@@ -91,30 +141,33 @@ class VMDisplayQemuWindowController: VMDisplayWindowController {
         item.title = NSLocalizedString("Querying drives status...", comment: "VMDisplayWindowController")
         item.isEnabled = false
         menu.addItem(item)
-        DispatchQueue.global(qos: .userInitiated).async {
-            let drives = self.qemuVM.drives
-            DispatchQueue.main.async {
-                self.updateDrivesMenu(menu, drives: drives)
-            }
-        }
+        updateDrivesMenu(menu, drives: vmQemuConfig.drives)
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
     
-    func updateDrivesMenu(_ menu: NSMenu, drives: [UTMDrive]) {
+    @nonobjc func updateDrivesMenu(_ menu: NSMenu, drives: [UTMQemuConfigurationDrive]) {
         menu.removeAllItems()
         if drives.count == 0 {
             let item = NSMenuItem()
             item.title = NSLocalizedString("No drives connected.", comment: "VMDisplayWindowController")
             item.isEnabled = false
             menu.addItem(item)
+        } else {
+            let item = NSMenuItem()
+            item.title = NSLocalizedString("Install Windows Guest Tools…", comment: "VMDisplayWindowController")
+            item.isEnabled = !qemuVM.isGuestToolsInstallRequested
+            item.target = self
+            item.action = #selector(installWindowsGuestTools)
+            menu.addItem(item)
         }
-        for drive in drives {
-            if drive.imageType != .disk && drive.imageType != .CD && drive.status == .fixed {
+        for i in drives.indices {
+            let drive = drives[i]
+            if drive.imageType != .disk && drive.imageType != .cd && !drive.isExternal {
                 continue // skip non-disks
             }
             let item = NSMenuItem()
-            item.title = drive.label
-            if drive.status == .fixed {
+            item.title = label(for: drive)
+            if !drive.isExternal {
                 item.isEnabled = false
             } else {
                 let submenu = NSMenu()
@@ -123,14 +176,14 @@ class VMDisplayQemuWindowController: VMDisplayWindowController {
                                        action: #selector(ejectDrive),
                                        keyEquivalent: "")
                 eject.target = self
-                eject.tag = drive.index
-                eject.isEnabled = drive.status != .ejected
+                eject.tag = i
+                eject.isEnabled = qemuVM.externalImageURL(for: drive) != nil
                 submenu.addItem(eject)
                 let change = NSMenuItem(title: NSLocalizedString("Change", comment: "VMDisplayWindowController"),
                                         action: #selector(changeDriveImage),
                                         keyEquivalent: "")
                 change.target = self
-                change.tag = drive.index
+                change.tag = i
                 change.isEnabled = true
                 submenu.addItem(change)
                 item.submenu = submenu
@@ -145,19 +198,20 @@ class VMDisplayQemuWindowController: VMDisplayWindowController {
             logger.error("wrong sender for ejectDrive")
             return
         }
-        let drive = qemuVM.drives[menu.tag]
-        DispatchQueue.global(qos: .background).async {
+        let drive = vmQemuConfig.drives[menu.tag]
+        Task.detached(priority: .background) { [self] in
             do {
-                try self.qemuVM.ejectDrive(drive, force: false)
+                try await qemuVM.eject(drive)
             } catch {
-                DispatchQueue.main.async {
-                    self.showErrorAlert(error.localizedDescription)
+                Task { @MainActor in
+                    showErrorAlert(error.localizedDescription)
                 }
             }
         }
     }
     
-    func openDriveImage(forDrive drive: UTMDrive) {
+    func openDriveImage(forDriveIndex index: Int) {
+        let drive = vmQemuConfig.drives[index]
         let openPanel = NSOpenPanel()
         openPanel.title = NSLocalizedString("Select Drive Image", comment: "VMDisplayWindowController")
         openPanel.allowedContentTypes = [.data]
@@ -169,12 +223,12 @@ class VMDisplayQemuWindowController: VMDisplayWindowController {
                 logger.debug("no file selected")
                 return
             }
-            DispatchQueue.global(qos: .background).async {
+            Task.detached(priority: .background) { [self] in
                 do {
-                    try self.qemuVM.changeMedium(for: drive, url: url)
+                    try await qemuVM.changeMedium(drive, to: url)
                 } catch {
-                    DispatchQueue.main.async {
-                        self.showErrorAlert(error.localizedDescription)
+                    Task { @MainActor in
+                        showErrorAlert(error.localizedDescription)
                     }
                 }
             }
@@ -186,8 +240,19 @@ class VMDisplayQemuWindowController: VMDisplayWindowController {
             logger.error("wrong sender for ejectDrive")
             return
         }
-        let drive = qemuVM.drives[menu.tag]
-        openDriveImage(forDrive: drive)
+        openDriveImage(forDriveIndex: menu.tag)
+    }
+    
+    @nonobjc private func label(for drive: UTMQemuConfigurationDrive) -> String {
+        let imageURL = qemuVM.externalImageURL(for: drive) ?? drive.imageURL
+        return String.localizedStringWithFormat(NSLocalizedString("%@ (%@): %@", comment: "VMDisplayQemuDisplayController"),
+                                                drive.imageType.prettyValue,
+                                                drive.interface.prettyValue,
+                                                imageURL?.lastPathComponent ?? NSLocalizedString("none", comment: "VMDisplayQemuDisplayController"))
+    }
+    
+    @MainActor private func installWindowsGuestTools(sender: AnyObject) {
+        qemuVM.isGuestToolsInstallRequested = true
     }
 }
 
@@ -207,11 +272,11 @@ extension VMDisplayQemuWindowController {
                 logger.debug("no directory selected")
                 return
             }
-            DispatchQueue.global(qos: .background).async {
+            Task.detached(priority: .background) { [self] in
                 do {
-                    try self.qemuVM.changeSharedDirectory(url)
+                    try await self.qemuVM.changeSharedDirectory(to: url)
                 } catch {
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         self.showErrorAlert(error.localizedDescription)
                     }
                 }
@@ -247,16 +312,8 @@ extension VMDisplayQemuWindowController: UTMSpiceIODelegate {
         guard !isSecondary else {
             return
         }
-        guard let primary = self as? VMQemuDisplayMetalWindowController else {
-            return
-        }
-        DispatchQueue.main.async {
-            let id = display.monitorID
-            guard id < self.vmQemuConfig.displays.count else {
-                return
-            }
-            let secondary = VMQemuDisplayMetalWindowController(secondaryFromDisplay: display, primary: primary, vm: self.qemuVM, id: id)
-            self.showSecondaryWindow(secondary)
+        Task { @MainActor in
+            findWindow(for: display)
         }
     }
     
@@ -296,15 +353,8 @@ extension VMDisplayQemuWindowController: UTMSpiceIODelegate {
         guard !isSecondary else {
             return
         }
-        DispatchQueue.main.async {
-            guard let id = self.configIdForSerial(serial) else {
-                return
-            }
-            guard id < self.vmQemuConfig.serials.count else {
-                return
-            }
-            let secondary = VMDisplayQemuTerminalWindowController(secondaryFromSerialPort: serial, vm: self.qemuVM, id: id)
-            self.showSecondaryWindow(secondary)
+        Task { @MainActor in
+            findWindow(for: serial)
         }
     }
     
@@ -481,5 +531,160 @@ extension VMDisplayQemuWindowController {
                 }
             }
         }
+    }
+}
+
+// MARK: - Window management
+
+extension VMDisplayQemuWindowController {
+    @IBAction override func windowsButtonPressed(_ sender: Any) {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for display in qemuVM.ioService!.displays {
+            let id = display.monitorID
+            guard id < vmQemuConfig.displays.count else {
+                continue
+            }
+            let config = vmQemuConfig.displays[id]
+            let item = NSMenuItem()
+            let format = NSLocalizedString("Display %lld: %@", comment: "VMDisplayQemuDisplayController")
+            let title = String.localizedStringWithFormat(format, id + 1, config.hardware.prettyValue)
+            let isCurrent = self is VMDisplayQemuMetalWindowController && self.id == id
+            item.title = title
+            item.isEnabled = !isCurrent
+            item.state = isCurrent ? .on : .off
+            item.tag = id
+            item.target = self
+            item.action = #selector(showWindowFromDisplay)
+            menu.addItem(item)
+        }
+        for serial in qemuVM.ioService!.serials {
+            guard let id = configIdForSerial(serial) else {
+                continue
+            }
+            let item = NSMenuItem()
+            let format = NSLocalizedString("Serial %lld", comment: "VMDisplayQemuDisplayController")
+            let title = String.localizedStringWithFormat(format, id + 1)
+            let isCurrent = self is VMDisplayQemuTerminalWindowController && self.id == id
+            item.title = title
+            item.isEnabled = !isCurrent
+            item.state = isCurrent ? .on : .off
+            item.tag = id
+            item.target = self
+            item.action = #selector(showWindowFromSerial)
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+    
+    @objc private func showWindowFromDisplay(sender: AnyObject) {
+        let item = sender as! NSMenuItem
+        let id = item.tag
+        if self is VMDisplayQemuMetalWindowController && self.id == id {
+            return
+        }
+        guard let display = qemuVM.ioService?.displays.first(where: { $0.monitorID == id}) else {
+            return
+        }
+        if let window = findWindow(for: display) {
+            window.showWindow(self)
+        }
+    }
+    
+    @objc private func showWindowFromSerial(sender: AnyObject) {
+        let item = sender as! NSMenuItem
+        let id = item.tag
+        if self is VMDisplayQemuTerminalWindowController && self.id == id {
+            return
+        }
+        guard let serial = qemuVM.ioService?.serials.first(where: { id == configIdForSerial($0) }) else {
+            return
+        }
+        if let window = findWindow(for: serial) {
+            window.showWindow(self)
+        }
+    }
+    
+    @MainActor private func findWindow(for display: CSDisplay) -> VMDisplayQemuWindowController? {
+        let id = display.monitorID
+        let secondaryWindows: [VMDisplayWindowController]
+        if self is VMDisplayQemuMetalWindowController && self.id == id {
+            return self
+        }
+        if let window = primaryWindow {
+            if (window as? VMDisplayQemuMetalWindowController)?.id == id {
+                return window as? VMDisplayQemuWindowController
+            }
+            secondaryWindows = window.secondaryWindows
+        } else {
+            secondaryWindows = self.secondaryWindows
+        }
+        for window in secondaryWindows {
+            if let window = window as? VMDisplayQemuMetalWindowController {
+                if window.id == id {
+                    // found existing window
+                    return window
+                }
+            }
+        }
+        if let newWindow = newWindow(from: display) {
+            return newWindow
+        } else {
+            return nil
+        }
+    }
+    
+    @MainActor private func newWindow(from display: CSDisplay) -> VMDisplayQemuMetalWindowController? {
+        let id = display.monitorID
+        guard id < vmQemuConfig.displays.count else {
+            return nil
+        }
+        guard let primary = (primaryWindow ?? self) as? VMDisplayQemuMetalWindowController else {
+            return nil
+        }
+        let secondary = VMDisplayQemuMetalWindowController(secondaryFromDisplay: display, primary: primary, vm: qemuVM, id: id)
+        registerSecondaryWindow(secondary)
+        return secondary
+    }
+    
+    @MainActor private func findWindow(for serial: CSPort) -> VMDisplayQemuWindowController? {
+        let id = configIdForSerial(serial)!
+        let secondaryWindows: [VMDisplayWindowController]
+        if self is VMDisplayQemuTerminalWindowController && self.id == id {
+            return self
+        }
+        if let window = primaryWindow {
+            if (window as? VMDisplayQemuTerminalWindowController)?.id == id {
+                return window as? VMDisplayQemuWindowController
+            }
+            secondaryWindows = window.secondaryWindows
+        } else {
+            secondaryWindows = self.secondaryWindows
+        }
+        for window in secondaryWindows {
+            if let window = window as? VMDisplayQemuTerminalWindowController {
+                if window.id == id {
+                    // found existing window
+                    return window
+                }
+            }
+        }
+        if let newWindow = newWindow(from: serial) {
+            return newWindow
+        } else {
+            return nil
+        }
+    }
+    
+    @MainActor private func newWindow(from serial: CSPort) -> VMDisplayQemuTerminalWindowController? {
+        guard let id = configIdForSerial(serial) else {
+            return nil
+        }
+        guard id < vmQemuConfig.serials.count else {
+            return nil
+        }
+        let secondary = VMDisplayQemuTerminalWindowController(secondaryFromSerialPort: serial, vm: qemuVM, id: id)
+        registerSecondaryWindow(secondary)
+        return secondary
     }
 }

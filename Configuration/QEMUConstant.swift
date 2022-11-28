@@ -181,20 +181,16 @@ enum QEMUUSBBus: String, CaseIterable, QEMUConstant {
 
 enum QEMUNetworkMode: String, CaseIterable, QEMUConstant {
     case emulated = "Emulated"
-    #if os(macOS)
     case shared = "Shared"
     case host = "Host"
     case bridged = "Bridged"
-    #endif
     
     var prettyValue: String {
         switch self {
         case .emulated: return NSLocalizedString("Emulated VLAN", comment: "UTMQemuConstants")
-        #if os(macOS)
         case .shared: return NSLocalizedString("Shared Network", comment: "UTMQemuConstants")
         case .host: return NSLocalizedString("Host Only", comment: "UTMQemuConstants")
         case .bridged: return NSLocalizedString("Bridged (Advanced)", comment: "UTMQemuConstants")
-        #endif
         }
     }
 }
@@ -381,8 +377,8 @@ enum QEMUFileShareMode: String, CaseIterable, QEMUConstant {
     var prettyValue: String {
         switch self {
         case .none: return NSLocalizedString("None", comment: "UTMQemuConstants")
-        case .webdav: return NSLocalizedString("SPICE WebDAV (Legacy)", comment: "UTMQemuConstants")
-        case .virtfs: return NSLocalizedString("VirtFS (Recommended)", comment: "UTMQemuConstants")
+        case .webdav: return NSLocalizedString("SPICE WebDAV", comment: "UTMQemuConstants")
+        case .virtfs: return NSLocalizedString("VirtFS", comment: "UTMQemuConstants")
         }
     }
 }
@@ -393,4 +389,52 @@ enum QEMUPackageFileName: String {
     case images = "Images"
     case debugLog = "debug.log"
     case efiVariables = "efi_vars.fd"
+}
+
+// MARK: Supported features
+
+extension QEMUArchitecture {
+    var hasAgentSupport: Bool {
+        switch self {
+        case .sparc, .sparc64: return false
+        default: return true
+        }
+    }
+    
+    var hasSharingSupport: Bool {
+        switch self {
+        case .sparc, .sparc64: return false
+        default: return true
+        }
+    }
+    
+    var hasUsbSupport: Bool {
+        switch self {
+        case .s390x: return false
+        case .sparc, .sparc64: return false
+        default: return true
+        }
+    }
+    
+    var hasHypervisorSupport: Bool {
+        guard jb_has_hypervisor() else {
+            return false
+        }
+        #if arch(arm64)
+        return self == .aarch64
+        #elseif arch(x86_64)
+        return self == .x86_64
+        #else
+        return false
+        #endif
+    }
+}
+
+extension QEMUTarget {
+    var hasUsbSupport: Bool {
+        switch self.rawValue {
+        case "isapc": return false
+        default: return true
+        }
+    }
 }

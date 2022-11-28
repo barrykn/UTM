@@ -59,6 +59,7 @@ enum VMWizardOS: String, Identifiable {
     @Published var alertMessage: AlertMessage?
     @Published var isBusy: Bool = false
     @Published var systemBootUefi: Bool = true
+    @Published var isGuestToolsInstallRequested: Bool = true
     @Published var useVirtualization: Bool = false {
         didSet {
             if !useVirtualization {
@@ -92,8 +93,9 @@ enum VMWizardOS: String, Identifiable {
     @Published var linuxBootArguments: String = ""
     @Published var linuxHasRosetta: Bool = false
     @Published var windowsBootVhdx: URL?
+    @Published var isWindows10OrHigher: Bool = true
     @Published var systemArchitecture: QEMUArchitecture = .x86_64
-    @Published var systemTarget: any QEMUTarget = QEMUTarget_x86_64.pc
+    @Published var systemTarget: any QEMUTarget = QEMUTarget_x86_64.default
     #if os(macOS)
     @Published var systemMemoryMib: Int = 4096
     @Published var storageSizeGib: Int = 64
@@ -272,6 +274,7 @@ enum VMWizardOS: String, Identifiable {
                 bootloader.linuxInitialRamdiskURL = linuxInitialRamdiskURL
                 bootloader.linuxCommandLine = linuxBootArguments
                 config.system.boot = bootloader
+                config.system.genericPlatform = UTMAppleConfigurationGenericPlatform()
                 if let linuxRootImageURL = linuxRootImageURL {
                     config.drives.append(UTMAppleConfigurationDrive(existingURL: linuxRootImageURL))
                     isSkipDiskCreate = true
@@ -304,7 +307,7 @@ enum VMWizardOS: String, Identifiable {
                 config.displays = [UTMAppleConfigurationDisplay(width: 1920, height: 1200)]
                 config.virtualization.hasAudio = true
                 config.virtualization.hasKeyboard = true
-                config.virtualization.pointer = .mouse
+                config.virtualization.hasPointer = true
             }
         }
         config.virtualization.hasBalloon = true
@@ -354,13 +357,11 @@ enum VMWizardOS: String, Identifiable {
         config.qemu.hasHypervisor = useVirtualization
         config.sharing.isDirectoryShareReadOnly = sharingReadOnly
         if let sharingDirectoryURL = sharingDirectoryURL {
-            if operatingSystem == .Windows {
-                // default webdav for windows
-                config.sharing.directoryShareMode = .webdav
-            } else {
-                config.sharing.directoryShareMode = .virtfs
-            }
             config.sharing.directoryShareUrl = sharingDirectoryURL
+        }
+        if config.sharing.directoryShareMode != .none && operatingSystem == .Linux {
+            // change default sharing to virtfs if linux
+            config.sharing.directoryShareMode = .virtfs
         }
         if operatingSystem == .Windows {
             // only change UEFI settings for Windows
@@ -433,6 +434,10 @@ enum VMWizardOS: String, Identifiable {
             diskImage.imageType = .disk
             diskImage.interface = mainDriveInterface
             config.drives.append(diskImage)
+            if operatingSystem == .Windows && isGuestToolsInstallRequested {
+                let toolsDiskDrive = UTMQemuConfigurationDrive(forArchitecture: systemArchitecture, target: systemTarget, isExternal: true)
+                config.drives.append(toolsDiskDrive)
+            }
         }
         return config
     }
@@ -461,6 +466,54 @@ enum VMWizardOS: String, Identifiable {
                 await MainActor.run { self.alertMessage = AlertMessage(error.localizedDescription) }
             }
             await MainActor.run { self.isBusy = false }
+        }
+    }
+}
+
+// MARK: - Warnings for common mistakes
+
+extension VMWizardState {
+    nonisolated func confusedUserCheck() {
+        Task { @MainActor in
+            do {
+                try confusedUserCheckBootImage()
+            } catch {
+                self.alertMessage = AlertMessage(error.localizedDescription)
+            }
+        }
+    }
+    
+    private func confusedUserCheckBootImage() throws {
+        guard let path = bootImageURL?.path.lowercased() else {
+            return
+        }
+        if systemArchitecture == .aarch64 {
+            if path.contains("x64") {
+                throw VMWizardError.confusedArchitectureWarning("x64", systemArchitecture, "a64")
+            }
+            if path.contains("amd64") {
+                throw VMWizardError.confusedArchitectureWarning("amd64", systemArchitecture, "arm64")
+            }
+            if path.contains("x86_64") {
+                throw VMWizardError.confusedArchitectureWarning("x86_64", systemArchitecture, "arm64")
+            }
+        }
+        if systemArchitecture == .x86_64 {
+            if path.contains("arm64") {
+                throw VMWizardError.confusedArchitectureWarning("arm64", systemArchitecture, "amd64")
+            }
+        }
+    }
+}
+
+enum VMWizardError: Error {
+    case confusedArchitectureWarning(String, QEMUArchitecture, String)
+}
+
+extension VMWizardError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .confusedArchitectureWarning(let pattern, let architecture, let expected): return String.localizedStringWithFormat(NSLocalizedString("The selected boot image contains the word '%@' but the guest architecture is '%@'. Please ensure you have selected an image that is compatible with '%@'.", comment: "VMWizardState"), pattern, architecture.prettyValue, expected)
         }
     }
 }
