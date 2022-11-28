@@ -4,9 +4,13 @@
 > 发明一台可以用来计算任何可计算序列的机器是完全有可能的。
 -- <cite>图灵（Alan Turing）, 1936年</cite>
 
-UTM是一个功能齐全的iOS虚拟机。简而言之，它允许你在iPhone和iPad上运行Windows、Android、Ubuntu等操作系统。更多信息请访问https://getutm.app/
+UTM是一个功能齐全的iOS虚拟机。简而言之，它允许你在iPhone和iPad上运行Windows、Android、Ubuntu等操作系统。更多信息请访问[https://getutm.app/](https://getutm.app/)和[https://mac.getutm.app/](https://mac.getutm.app/)
 
-![在iPhone上运行UTM的截图](https://kyun.ltyuanfang.cn/tc/2020/08/16/b71e7b3b8d695.png)
+<p align="center">
+  <img width="450px" alt="在iPhone上运行UTM" src="screen.png">
+  <br>
+  <img width="450px" alt="在MacBook上运行UTM" src="screenmac.png">
+</p>
 
 ## 特征
 
@@ -92,11 +96,12 @@ UTM是在Apache 2.0许可下发布的。但是，它使用了几个(L)GPL组件�
 
 一些图标使用 [Freepik](https://www.freepik.com) 从 [www.flaticon.com](https://www.flaticon.com/) 制作.
 
-另外, UTM还使用了以下MIT许可的组件:
+另外, UTM还使用了以下MIT/BSD许可的组件:
 
  * [IQKeyboardManager](https://github.com/hackiftekhar/IQKeyboardManager)
  * [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)
  * [ZIP Foundation](https://github.com/weichsel/ZIPFoundation)
+ * [InAppSettingsKit](https://github.com/futuretap/InAppSettingsKit)
 
 [1]: https://github.com/utmapp/UTM/actions?query=event%3Arelease+workflow%3ABuild
 [2]: https://dantheman827.github.io/ios-app-signer/

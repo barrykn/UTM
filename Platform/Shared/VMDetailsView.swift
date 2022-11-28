@@ -26,17 +26,13 @@ struct VMDetailsView: View {
     private var regularScreenSizeClass: Bool {
         horizontalSizeClass == .regular
     }
-    private let workaroundScrollbarBug: Bool = false
     #else
     private let regularScreenSizeClass: Bool = true
-    private var workaroundScrollbarBug: Bool {
-        NSScroller.preferredScrollerStyle == .legacy
-    }
     #endif
     
     private var sizeLabel: String {
         let size = data.computeSize(for: vm)
-        return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+        return ByteCountFormatter.string(fromByteCount: size, countStyle: .binary)
     }
     
     var body: some View {
@@ -52,7 +48,7 @@ struct VMDetailsView: View {
                 Spacer()
             }
         } else {
-            ScrollView(.vertical, showsIndicators: !workaroundScrollbarBug) {
+            ScrollView {
                 Screenshot(vm: vm, large: regularScreenSizeClass)
                 let notes = vm.detailsNotes ?? ""
                 if regularScreenSizeClass && !notes.isEmpty {
@@ -67,14 +63,15 @@ struct VMDetailsView: View {
                     }.padding([.leading, .trailing])
                     #if os(macOS)
                     if let appleVM = vm as? UTMAppleVirtualMachine {
-                        VMAppleRemovableDrivesView(vm: appleVM, config: appleVM.appleConfig)
+                        VMAppleRemovableDrivesView(vm: appleVM, config: appleVM.appleConfig, registryEntry: appleVM.registryEntry)
                             .padding([.leading, .trailing, .bottom])
-                    } else {
-                        VMRemovableDrivesView(vm: vm as! UTMQemuVirtualMachine)
+                    } else if let qemuVM = vm as? UTMQemuVirtualMachine {
+                        VMRemovableDrivesView(vm: qemuVM, config: qemuVM.qemuConfig)
                             .padding([.leading, .trailing, .bottom])
                     }
                     #else
-                    VMRemovableDrivesView(vm: vm as! UTMQemuVirtualMachine)
+                    let qemuVM = vm as! UTMQemuVirtualMachine
+                    VMRemovableDrivesView(vm: qemuVM, config: qemuVM.qemuConfig)
                         .padding([.leading, .trailing, .bottom])
                     #endif
                 } else {
@@ -87,12 +84,13 @@ struct VMDetailsView: View {
                         }
                         #if os(macOS)
                         if let appleVM = vm as? UTMAppleVirtualMachine {
-                            VMAppleRemovableDrivesView(vm: appleVM, config: appleVM.appleConfig)
+                            VMAppleRemovableDrivesView(vm: appleVM, config: appleVM.appleConfig, registryEntry: appleVM.registryEntry)
                         } else if let qemuVM = vm as? UTMQemuVirtualMachine {
-                            VMRemovableDrivesView(vm: qemuVM)
+                            VMRemovableDrivesView(vm: qemuVM, config: qemuVM.qemuConfig)
                         }
                         #else
-                        VMRemovableDrivesView(vm: vm as! UTMQemuVirtualMachine)
+                        let qemuVM = vm as! UTMQemuVirtualMachine
+                        VMRemovableDrivesView(vm: qemuVM, config: qemuVM.qemuConfig)
                         #endif
                     }.padding([.leading, .trailing, .bottom])
                 }

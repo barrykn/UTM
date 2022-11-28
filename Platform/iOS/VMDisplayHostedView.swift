@@ -32,31 +32,31 @@ struct VMDisplayHostedView: UIViewControllerRepresentable {
             vm.config.qemuConfig
         }
         
-        var qemuInputLegacy: Bool {
-            vmConfig.input.usbBusSupport == .disabled || vmConfig.qemu.hasPS2Controller
+        @MainActor var qemuInputLegacy: Bool {
+            vmConfig.input.usbBusSupport == .disabled
         }
         
-        var qemuDisplayUpscaler: MTLSamplerMinMagFilter {
+        @MainActor var qemuDisplayUpscaler: MTLSamplerMinMagFilter {
             vmConfig.displays[state.device!.configIndex].upscalingFilter.metalSamplerMinMagFilter
         }
         
-        var qemuDisplayDownscaler: MTLSamplerMinMagFilter {
+        @MainActor var qemuDisplayDownscaler: MTLSamplerMinMagFilter {
             vmConfig.displays[state.device!.configIndex].downscalingFilter.metalSamplerMinMagFilter
         }
         
-        var qemuDisplayIsDynamicResolution: Bool {
+        @MainActor var qemuDisplayIsDynamicResolution: Bool {
             vmConfig.displays[state.device!.configIndex].isDynamicResolution
         }
         
-        var qemuDisplayIsNativeResolution: Bool {
+        @MainActor var qemuDisplayIsNativeResolution: Bool {
             vmConfig.displays[state.device!.configIndex].isNativeResolution
         }
         
-        var qemuHasClipboardSharing: Bool {
+        @MainActor var qemuHasClipboardSharing: Bool {
             vmConfig.sharing.hasClipboardSharing
         }
         
-        var qemuConsoleResizeCommand: String? {
+        @MainActor var qemuConsoleResizeCommand: String? {
             vmConfig.serials[state.device!.configIndex].terminal?.resizeCommand
         }
         
@@ -146,8 +146,9 @@ struct VMDisplayHostedView: UIViewControllerRepresentable {
             mvc.delegate = context.coordinator
             mvc.setDisplayScaling(state.displayScale, origin: state.displayOrigin)
             vc = mvc
-        case .serial(let serial, _):
-            vc = VMDisplayTerminalViewController(port: serial)
+        case .serial(let serial, let id):
+            let style = vm.qemuConfig.serials[id].terminal
+            vc = VMDisplayTerminalViewController(port: serial, style: style)
             vc.delegate = context.coordinator
         }
         context.coordinator.vmStateCancellable = session.$vmState.sink { vmState in

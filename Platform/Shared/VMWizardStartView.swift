@@ -26,7 +26,15 @@ struct VMWizardStartView: View {
         #if os(macOS)
         VZVirtualMachine.isSupported && !processIsTranslated()
         #else
-        false
+        jb_has_hypervisor()
+        #endif
+    }
+    
+    var isEmulationSupported: Bool {
+        #if WITH_QEMU_TCI
+        true
+        #else
+        Main.jitAvailable
         #endif
     }
     
@@ -85,12 +93,17 @@ struct VMWizardStartView: View {
                     .padding()
                 }
                 .buttonStyle(.inList)
+                .disabled(!isEmulationSupported)
                 
             } header: {
                 Text("Custom")
             } footer: {
-                if !isVirtualizationSupported {
+                if !isEmulationSupported && !isVirtualizationSupported {
+                    Text("Your version of iOS does not support running VMs while unmodified. You must either run UTM while jailbroken or with a remote debugger attached. See https://getutm.app/install/ for more details.")
+                } else if !isVirtualizationSupported {
                     Text("Virtualization is not supported on your system.")
+                } else if !isEmulationSupported {
+                    Text("This build does not emulation.")
                 }
             }
             Section {
@@ -118,7 +131,9 @@ struct VMWizardStartView: View {
             }
 
         }
+        #if os(iOS)
         .navigationTitle(Text("Start"))
+        #endif
     }
     
     private func processIsTranslated() -> Bool {

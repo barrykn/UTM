@@ -41,6 +41,8 @@ class VMDisplayAppleTerminalWindowController: VMDisplayAppleWindowController, VM
     private(set) var isPrimary: Bool = true
     private(set) var index: Int = 0
     
+    private var isSizeChangeIgnored: Bool = true
+    
     convenience init(primaryForIndex index: Int, vm: UTMAppleVirtualMachine, onClose: ((Notification) -> Void)?) {
         self.init(vm: vm, onClose: onClose)
         self.index = index
@@ -58,7 +60,8 @@ class VMDisplayAppleTerminalWindowController: VMDisplayAppleWindowController, VM
     }
     
     override func updateWindowFrame() {
-        setupTerminal(terminalView, using: serialConfig.terminal!, for: window!)
+        setupTerminal(terminalView, using: serialConfig.terminal!, id: index, for: window!)
+        isSizeChangeIgnored = false
         super.updateWindowFrame()
     }
     
@@ -71,12 +74,24 @@ class VMDisplayAppleTerminalWindowController: VMDisplayAppleWindowController, VM
     override func enterLive() {
         serialPort.delegate = self
         super.enterLive()
+        resizeConsoleToolbarItem.isEnabled = true
+    }
+    
+    func sendString(_ string: String) {
+        if let serialPort = serialPort, let data = string.data(using: .nonLossyASCII) {
+            serialPort.write(data: data)
+        } else {
+            logger.error("failed to send: \(string)")
+        }
     }
 }
 
 // MARK: - Terminal view delegate
 extension VMDisplayAppleTerminalWindowController: TerminalViewDelegate, UTMSerialPortDelegate {
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        if !isSizeChangeIgnored {
+            sizeChanged(id: index, newCols: newCols, newRows: newRows)
+        }
     }
     
     func setTerminalTitle(source: TerminalView, title: String) {

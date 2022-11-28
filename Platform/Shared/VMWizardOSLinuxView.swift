@@ -55,13 +55,15 @@ struct VMWizardOSLinuxView: View {
                     .help("If set, boot directly from a raw kernel image and initrd. Otherwise, boot from a supported ISO.")
                     .disabled(wizardState.useAppleVirtualization && !hasVenturaFeatures)
                 if !wizardState.useLinuxKernel {
-#if arch(arm64)
-                Link("Download Ubuntu Server for ARM", destination: URL(string: "https://ubuntu.com/download/server/arm")!)
-                    .buttonStyle(.borderless)
-#else
-                Link("Download Ubuntu Desktop", destination: URL(string: "https://ubuntu.com/download/desktop")!)
-                    .buttonStyle(.borderless)
-#endif
+                    if wizardState.useAppleVirtualization {
+                        Link(destination: URL(string: "https://docs.getutm.app/guides/debian/")!) {
+                            Label("Debian Install Guide", systemImage: "link")
+                        }.buttonStyle(.borderless)
+                    } else {
+                        Link(destination: URL(string: "https://docs.getutm.app/guides/ubuntu/")!) {
+                            Label("Ubuntu Install Guide", systemImage: "link")
+                        }.buttonStyle(.borderless)
+                    }
                 }
             } header: {
                 Text("Boot Image Type")
@@ -71,10 +73,9 @@ struct VMWizardOSLinuxView: View {
             if #available(macOS 13, *), wizardState.useAppleVirtualization {
                 Section {
                     Toggle("Enable Rosetta (x86_64 Emulation)", isOn: $wizardState.linuxHasRosetta)
-                    Link("Installation Instructions", destination: URL(string: "https://developer.apple.com/documentation/virtualization/running_intel_binaries_in_linux_vms_with_rosetta#3978496")!)
-                        .buttonStyle(.borderless)
-                    Text("Note: The file system tag for mounting the installer is 'rosetta'.")
-                        .font(.footnote)
+                    Link(destination: URL(string: "https://docs.getutm.app/advanced/rosetta/")!) {
+                        Label("Installation Instructions", systemImage: "link")
+                    }.buttonStyle(.borderless)
                 } header: {
                     Text("Additional Options")
                 }
@@ -84,146 +85,43 @@ struct VMWizardOSLinuxView: View {
             if wizardState.useLinuxKernel {
                 
                 Section {
-                    ((wizardState.linuxKernelURL?.lastPathComponent).map { Text($0) } ?? Text("Empty"))
-                        .font(.caption)
-                    Button {
+                    FileBrowseField(url: $wizardState.linuxKernelURL, isFileImporterPresented: $isFileImporterPresented, hasClearButton: false) {
                         selectImage = .kernel
-                        isFileImporterPresented.toggle()
-                    } label: {
-                        Text("Browse…")
-                    }
-                    .padding(.leading, 1)
+                    }.disabled(wizardState.isBusy)
                 } header: {
                     if wizardState.useAppleVirtualization {
-                        Text("Uncompressed \(Text("Linux kernel (required):"))")
+                        Text("Uncompressed Linux kernel (required)")
                     } else {
-                        Text("Linux kernel (required):")
+                        Text("Linux kernel (required)")
                     }
                 }
                 
                 Section {
-                    ((wizardState.linuxInitialRamdiskURL?.lastPathComponent).map { Text($0) } ?? Text("Empty"))
-                        .font(.caption)
-#if os(macOS)
-                    HStack {
-                        Button {
-                            selectImage = .initialRamdisk
-                            isFileImporterPresented.toggle()
-                        } label: {
-                            Text("Browse…")
-                        }
-                        .disabled(wizardState.isBusy)
-                        .padding(.leading, 1)
-                        Button {
-                            wizardState.linuxInitialRamdiskURL = nil
-                        } label: {
-                            Text("Clear")
-                        }
-                        .padding(.leading, 1)
-                    }
-#else
-                    Button {
+                    FileBrowseField(url: $wizardState.linuxInitialRamdiskURL, isFileImporterPresented: $isFileImporterPresented) {
                         selectImage = .initialRamdisk
-                        isFileImporterPresented.toggle()
-                    } label: {
-                        Text("Browse…")
-                    }
-                    .disabled(wizardState.isBusy)
-                    .padding(.leading, 1)
-                    Button {
-                        wizardState.linuxInitialRamdiskURL = nil
-                    } label: {
-                        Text("Clear")
-                    }
-                    .padding(.leading, 1)
-#endif
-                    
+                    }.disabled(wizardState.isBusy)
                 } header: {
                     if wizardState.useAppleVirtualization {
-                        Text("Uncompressed \(Text("Linux initial ramdisk (optional):"))")
+                        Text("Uncompressed Linux initial ramdisk (optional)")
                     } else {
-                        Text("Linux initial ramdisk (optional):")
+                        Text("Linux initial ramdisk (optional)")
                     }
                 }
                 
                 Section {
-                    ((wizardState.linuxRootImageURL?.lastPathComponent).map { Text($0) } ?? Text("Empty"))
-                        .font(.caption)
-#if os(macOS)
-                    HStack {
-                        Button {
-                            selectImage = .rootImage
-                            isFileImporterPresented.toggle()
-                        } label: {
-                            Text("Browse…")
-                        }
-                        Button {
-                            wizardState.linuxRootImageURL = nil
-                        } label: {
-                            Text("Clear")
-                        }
-                    }
-#else
-                    Button {
+                    FileBrowseField(url: $wizardState.linuxRootImageURL, isFileImporterPresented: $isFileImporterPresented) {
                         selectImage = .rootImage
-                        isFileImporterPresented.toggle()
-                    } label: {
-                        Text("Browse…")
-                    }
-                    Button {
-                        wizardState.linuxRootImageURL = nil
-                    } label: {
-                        Text("Clear")
-                    }
-#endif
-                    
+                    }.disabled(wizardState.isBusy)
                 } header: {
-                    Text("Linux Root FS Image (optional):")
+                    Text("Linux Root FS Image (optional)")
                 }
                 
                 Section {
-                    ((wizardState.bootImageURL?.lastPathComponent).map { Text($0) } ?? Text("Empty"))
-                        .font(.caption)
-#if os(macOS)
-                    HStack {
-                        Button {
-                            selectImage = .bootImage
-                            isFileImporterPresented.toggle()
-                        } label: {
-                            Text("Browse…")
-                        }
-                        .disabled(wizardState.isBusy)
-                        .padding(.leading, 1)
-                        Button {
-                            wizardState.bootImageURL = nil
-                            wizardState.isSkipBootImage = true
-                        } label: {
-                            Text("Clear")
-                        }
-                        .disabled(wizardState.isBusy)
-                        .padding(.leading, 1)
-                    }
-#else
-                    Button {
+                    FileBrowseField(url: $wizardState.bootImageURL, isFileImporterPresented: $isFileImporterPresented) {
                         selectImage = .bootImage
-                        isFileImporterPresented.toggle()
-                    } label: {
-                        Text("Browse…")
-                    }
-                    .disabled(wizardState.isBusy)
-                    .padding(.leading, 1)
-                    Button {
-                        wizardState.bootImageURL = nil
-                        wizardState.isSkipBootImage = true
-                    } label: {
-                        Text("Clear")
-                    }
-                    .disabled(wizardState.isBusy)
-                    .padding(.leading, 1)
-#endif
-                    
+                    }.disabled(wizardState.isBusy)
                 } header: {
-                    Text("Boot ISO Image (optional):")
+                    Text("Boot ISO Image (optional)")
                 }
                 
                 Section {
@@ -233,17 +131,11 @@ struct VMWizardOSLinuxView: View {
                 }
             } else {
                 Section {
-                    Text("Boot ISO Image:")
-                    ((wizardState.bootImageURL?.lastPathComponent).map { Text($0) } ?? Text("Empty"))
-                        .font(.caption)
-                    Button {
+                    FileBrowseField(url: $wizardState.bootImageURL, isFileImporterPresented: $isFileImporterPresented) {
                         selectImage = .bootImage
-                        isFileImporterPresented.toggle()
-                    } label: {
-                        Text("Browse…")
                     }.disabled(wizardState.isBusy)
                 } header: {
-                    Text("File Imported")
+                    Text("Boot ISO Image")
                 }
             }
             if wizardState.isBusy {
@@ -252,7 +144,9 @@ struct VMWizardOSLinuxView: View {
             
             
         }
+        #if os(iOS)
         .navigationTitle(Text("Linux"))
+        #endif
         .fileImporter(isPresented: $isFileImporterPresented, allowedContentTypes: [.data], onCompletion: processImage)
     }
     

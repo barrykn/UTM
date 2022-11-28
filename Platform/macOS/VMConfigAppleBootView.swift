@@ -56,7 +56,6 @@ struct VMConfigAppleBootView: View {
                 guard newValue != currentOperatingSystem else {
                     return
                 }
-                config.boot.hasUefiBoot = false
                 if newValue == .linux {
                     if #available(macOS 13, *) {
                         config.boot.hasUefiBoot = true
@@ -77,9 +76,11 @@ struct VMConfigAppleBootView: View {
                 importBootloaderSelection = nil
                 operatingSystem = currentOperatingSystem
             }.onChange(of: config.boot.hasUefiBoot) { newValue in
-                if !newValue && operatingSystem == .linux {
+                if !newValue && operatingSystem == .linux && config.boot.linuxKernelURL == nil {
                     alertBootloaderSelection = .kernel
                     operatingSystem = .none
+                } else if newValue {
+                    config.genericPlatform = UTMAppleConfigurationGenericPlatform()
                 }
             }.alert(item: $alertBootloaderSelection) { selection in
                 let okay = Alert.Button.default(Text("OK")) {
@@ -102,40 +103,19 @@ struct VMConfigAppleBootView: View {
 
             if operatingSystem == .linux && !config.boot.hasUefiBoot {
                 Section(header: Text("Linux Settings")) {
-                    HStack {
-                        TextField("Kernel Image", text: .constant(config.boot.linuxKernelURL?.lastPathComponent ?? ""))
-                            .disabled(true)
-                        Button("Browse…") {
-                            importBootloaderSelection = .kernel
-                            importFileShown = true
-                        }
+                    FileBrowseField("Kernel Image", url: $config.boot.linuxKernelURL, isFileImporterPresented: $importFileShown, hasClearButton: false) {
+                        importBootloaderSelection = .kernel
                     }
-                    HStack {
-                        TextField("Ramdisk (optional)", text: .constant(config.boot.linuxInitialRamdiskURL?.lastPathComponent ?? ""))
-                            .disabled(true)
-                        Button("Clear") {
-                            config.boot.linuxInitialRamdiskURL = nil
-                        }
-                        Button("Browse…") {
-                            importBootloaderSelection = .ramdisk
-                            importFileShown = true
-                        }
+                    FileBrowseField("Ramdisk (optional)", url: $config.boot.linuxInitialRamdiskURL, isFileImporterPresented: $importFileShown) {
+                        importBootloaderSelection = .ramdisk
                     }
                     TextField("Boot arguments", text: $config.boot.linuxCommandLine.bound)
                 }
             } else if #available(macOS 12, *), operatingSystem == .macOS {
                 #if arch(arm64)
                 Section(header: Text("macOS Settings")) {
-                    HStack {
-                        TextField("IPSW Install Image", text: .constant(config.boot.macRecoveryIpswURL?.lastPathComponent ?? ""))
-                            .disabled(true)
-                        Button("Clear") {
-                            config.boot.macRecoveryIpswURL = nil
-                        }
-                        Button("Browse…") {
-                            importBootloaderSelection = .ipsw
-                            importFileShown = true
-                        }
+                    FileBrowseField("IPSW Install Image", url: $config.boot.macRecoveryIpswURL, isFileImporterPresented: $importFileShown) {
+                        importBootloaderSelection = .ipsw
                     }
                 }
                 #endif
@@ -152,30 +132,38 @@ struct VMConfigAppleBootView: View {
         }
         data.busyWorkAsync {
             let url = try result.get()
-            try await Task { @MainActor in
-                switch selection {
-                case .ipsw:
-                    if #available(macOS 12, *) {
-                        #if arch(arm64)
-                        let image = try await VZMacOSRestoreImage.image(from: url)
-                        guard let model = image.mostFeaturefulSupportedConfiguration?.hardwareModel else {
-                            throw NSLocalizedString("Your machine does not support running this IPSW.", comment: "VMConfigAppleBootView")
-                        }
+            switch selection {
+            case .ipsw:
+                if #available(macOS 12, *) {
+                    #if arch(arm64)
+                    let image = try await VZMacOSRestoreImage.image(from: url)
+                    guard let model = image.mostFeaturefulSupportedConfiguration?.hardwareModel else {
+                        throw NSLocalizedString("Your machine does not support running this IPSW.", comment: "VMConfigAppleBootView")
+                    }
+                    await MainActor.run {
                         config.macPlatform = UTMAppleConfigurationMacPlatform(newHardware: model)
                         config.boot.operatingSystem = .macOS
                         config.boot.macRecoveryIpswURL = url
-                        #endif
                     }
-                case .kernel:
+                    #endif
+                }
+            case .kernel:
+                await MainActor.run {
+                    config.genericPlatform = UTMAppleConfigurationGenericPlatform()
                     config.boot.operatingSystem = .linux
                     config.boot.linuxKernelURL = url
-                case .ramdisk:
-                    config.boot.linuxInitialRamdiskURL = url
-                case .unsupported:
-                    break
+                    config.boot.hasUefiBoot = false
                 }
+            case .ramdisk:
+                await MainActor.run {
+                    config.boot.linuxInitialRamdiskURL = url
+                }
+            case .unsupported:
+                break
+            }
+            await MainActor.run {
                 operatingSystem = currentOperatingSystem
-            }.value
+            }
         }
     }
 }

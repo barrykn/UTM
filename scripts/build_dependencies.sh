@@ -158,6 +158,7 @@ download_all () {
     clone $ANGLE_REPO $ANGLE_COMMIT
     clone $EPOXY_REPO $EPOXY_COMMIT
     clone $VIRGLRENDERER_REPO $VIRGLRENDERER_COMMIT
+    clone $HYPERVISOR_REPO $HYPERVISOR_COMMIT
 }
 
 copy_private_headers() {
@@ -260,6 +261,7 @@ build_pkg_config() {
     cd "$pwd"
 
     export PATH="$PREFIX/host/bin:$PATH"
+    export PKG_CONFIG="$PREFIX/host/bin/pkg-config"
 }
 
 build_openssl() {
@@ -337,11 +339,16 @@ build_openssl() {
 }
 
 build () {
-    URL=$1
-    shift 1
-    FILE="$(basename $URL)"
-    NAME="${FILE%.tar.*}"
-    DIR="$BUILD_DIR/$NAME"
+    if [ -d "$1" ]; then
+        DIR="$1"
+        NAME="$(basename "$DIR")"
+    else
+        URL=$1
+        shift 1
+        FILE="$(basename $URL)"
+        NAME="${FILE%.tar.*}"
+        DIR="$BUILD_DIR/$NAME"
+    fi
     pwd="$(pwd)"
 
     cd "$DIR"
@@ -441,6 +448,30 @@ build_angle () {
     export PATH=$OLD_PATH
 }
 
+build_hypervisor () {
+    OLD_PATH=$PATH
+    export PATH="$(realpath "$BUILD_DIR/depot_tools.git"):$OLD_PATH"
+    pwd="$(pwd)"
+    cd "$BUILD_DIR/Hypervisor.git"
+
+    echo "${GREEN}Building Hypervisor...${NC}"
+    env -i PATH=$PATH xcodebuild archive -archivePath "Hypervisor" -scheme "Hypervisor" -sdk $SDK -configuration Release
+
+    rsync -a "Hypervisor.xcarchive/Products/Library/Frameworks/" "$PREFIX/Frameworks"
+    cd "$pwd"
+    export PATH=$OLD_PATH
+}
+
+generate_fake_hypervisor () {
+    mkdir "$PREFIX/Frameworks/Hypervisor.framework"
+    touch "$PREFIX/Frameworks/Hypervisor.framework/Hypervisor"
+    /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string Hypervisor" "$PREFIX/Frameworks/Hypervisor.framework/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.pomegranate.Hypervisor" "$PREFIX/Frameworks/Hypervisor.framework/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :MinimumOSVersion string $SDKMINVER" "$PREFIX/Frameworks/Hypervisor.framework/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 1" "$PREFIX/Frameworks/Hypervisor.framework/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.0" "$PREFIX/Frameworks/Hypervisor.framework/Info.plist"
+}
+
 build_qemu_dependencies () {
     build $FFI_SRC
     build $ICONV_SRC
@@ -469,6 +500,10 @@ build_qemu_dependencies () {
     build_angle
     meson_build $EPOXY_REPO -Dtests=false -Dglx=no -Degl=yes
     meson_build $VIRGLRENDERER_REPO -Dtests=false
+    # Hypervisor for iOS
+    if [ "$PLATFORM" == "ios" ]; then
+        build_hypervisor
+    fi
 }
 
 build_spice_client () {
@@ -549,9 +584,7 @@ remove_shared_gst_plugins () {
 }
 
 generate_qapi () {
-    FILE="$(basename $1)"
-    NAME="${FILE%.tar.*}"
-    DIR="$BUILD_DIR/$NAME"
+    DIR="$1"
     APIS="$DIR/qapi/qapi-schema.json"
 
     echo "${GREEN}Generating qapi sources from ${APIS}...${NC}"
@@ -630,11 +663,13 @@ ios* )
         SDK=iphonesimulator
         CFLAGS_MINVER="-mios-simulator-version-min=$SDKMINVER"
         PLATFORM_FAMILY_PREFIX="iOS_Simulator"
+        HVF_FLAGS="--disable-hvf"
         ;;
     * )
         SDK=iphoneos
         CFLAGS_MINVER="-miphoneos-version-min=$SDKMINVER"
         PLATFORM_FAMILY_PREFIX="iOS"
+        HVF_FLAGS=""
         ;;
     esac
     CFLAGS_TARGET=
@@ -647,12 +682,13 @@ ios* )
         fi
         PLATFORM_FAMILY_NAME="$PLATFORM_FAMILY_PREFIX-TCI"
         SKIP_USB_BUILD=1
+        HVF_FLAGS="--disable-hvf"
         ;;
     * )
         PLATFORM_FAMILY_NAME="$PLATFORM_FAMILY_PREFIX"
         ;;
     esac
-    QEMU_PLATFORM_BUILD_FLAGS="--disable-debug-info --enable-shared-lib --disable-hvf --disable-cocoa --disable-coreaudio --disable-slirp-smbd --enable-ucontext --with-coroutine=libucontext $TCI_BUILD_FLAGS"
+    QEMU_PLATFORM_BUILD_FLAGS="--disable-debug-info --enable-shared-lib --disable-cocoa --disable-coreaudio --disable-slirp-smbd --enable-ucontext --with-coroutine=libucontext $HVF_FLAGS $TCI_BUILD_FLAGS"
     ;;
 macos )
     if [ -z "$SDKMINVER" ]; then
@@ -686,6 +722,8 @@ if [ -z "$QEMU_DIR" ]; then
 elif [ ! -d "$QEMU_DIR" ]; then
     echo "${RED}Cannot find: ${QEMU_DIR}...${NC}"
     exit 1
+else
+    QEMU_DIR="$(realpath "$QEMU_DIR")"
 fi
 
 [ -d "$SYSROOT_DIR" ] || mkdir -p "$SYSROOT_DIR"
@@ -732,11 +770,11 @@ export STRIP
 export PREFIX
 
 # Flags
-CFLAGS="$CFLAGS -arch $ARCH -isysroot $SDKROOT -I$PREFIX/include $CFLAGS_MINVER $CFLAGS_TARGET"
-CPPFLAGS="$CPPFLAGS -arch $ARCH -isysroot $SDKROOT -I$PREFIX/include $CFLAGS_MINVER $CFLAGS_TARGET"
-CXXFLAGS="$CXXFLAGS -arch $ARCH -isysroot $SDKROOT -I$PREFIX/include $CFLAGS_MINVER $CFLAGS_TARGET"
-OBJCFLAGS="$OBJCFLAGS -arch $ARCH -isysroot $SDKROOT -I$PREFIX/include $CFLAGS_MINVER $CFLAGS_TARGET"
-LDFLAGS="$LDFLAGS -arch $ARCH -isysroot $SDKROOT -L$PREFIX/lib $CFLAGS_MINVER $CFLAGS_TARGET"
+CFLAGS="$CFLAGS -arch $ARCH -isysroot $SDKROOT -I$PREFIX/include -F$PREFIX/Frameworks $CFLAGS_MINVER $CFLAGS_TARGET"
+CPPFLAGS="$CPPFLAGS -arch $ARCH -isysroot $SDKROOT -I$PREFIX/include -F$PREFIX/Frameworks $CFLAGS_MINVER $CFLAGS_TARGET"
+CXXFLAGS="$CXXFLAGS -arch $ARCH -isysroot $SDKROOT -I$PREFIX/include -F$PREFIX/Frameworks $CFLAGS_MINVER $CFLAGS_TARGET"
+OBJCFLAGS="$OBJCFLAGS -arch $ARCH -isysroot $SDKROOT -I$PREFIX/include -F$PREFIX/Frameworks $CFLAGS_MINVER $CFLAGS_TARGET"
+LDFLAGS="$LDFLAGS -arch $ARCH -isysroot $SDKROOT -L$PREFIX/lib -F$PREFIX/Frameworks $CFLAGS_MINVER $CFLAGS_TARGET"
 export CFLAGS
 export CPPFLAGS
 export CXXFLAGS
@@ -763,10 +801,14 @@ rm -f "$BUILD_DIR/meson.cross"
 copy_private_headers
 build_pkg_config
 build_qemu_dependencies
-build $QEMU_SRC --cross-prefix="" $QEMU_PLATFORM_BUILD_FLAGS
+build $QEMU_DIR --cross-prefix="" $QEMU_PLATFORM_BUILD_FLAGS
 build_spice_client
 fixup_all
+# Fake Hypervisor to get iOS Simulator to build
+if [ "$PLATFORM" == "ios_simulator" ]; then
+    generate_fake_hypervisor
+fi
 remove_shared_gst_plugins # another hack...
-generate_qapi $QEMU_SRC
+generate_qapi $QEMU_DIR
 echo "${GREEN}All done!${NC}"
 touch "$BUILD_DIR/BUILD_SUCCESS"

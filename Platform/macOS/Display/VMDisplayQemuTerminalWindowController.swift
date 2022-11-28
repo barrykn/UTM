@@ -32,6 +32,8 @@ class VMDisplayQemuTerminalWindowController: VMDisplayQemuWindowController, VMDi
         }
     }
     
+    private var isSizeChangeIgnored: Bool = true
+    
     convenience init(secondaryFromSerialPort serialPort: CSPort, vm: UTMQemuVirtualMachine, id: Int) {
         self.init(vm: vm, id: id)
         self.vmSerialPort = serialPort
@@ -49,7 +51,8 @@ class VMDisplayQemuTerminalWindowController: VMDisplayQemuWindowController, VMDi
     override func enterLive() {
         super.enterLive()
         captureMouseToolbarItem.isEnabled = false
-        setupTerminal(terminalView, using: serialConfig!.terminal!, for: window!)
+        setupTerminal(terminalView, using: serialConfig!.terminal!, id: id, for: window!)
+        isSizeChangeIgnored = false
     }
     
     override func enterSuspended(isBusy busy: Bool) {
@@ -90,6 +93,9 @@ class VMDisplayQemuTerminalWindowController: VMDisplayQemuWindowController, VMDi
 
 extension VMDisplayQemuTerminalWindowController: TerminalViewDelegate {
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        if !isSizeChangeIgnored {
+            sizeChanged(id: id, newCols: newCols, newRows: newRows)
+        }
     }
     
     func setTerminalTitle(source: TerminalView, title: String) {
@@ -107,6 +113,14 @@ extension VMDisplayQemuTerminalWindowController: TerminalViewDelegate {
     
     func scrolled(source: TerminalView, position: Double) {
     }
+    
+    func sendString(_ string: String) {
+        if let vmSerialPort = vmSerialPort, let data = string.data(using: .nonLossyASCII) {
+            vmSerialPort.write(data)
+        } else {
+            logger.error("failed to send: \(string)")
+        }
+    }
 }
 
 extension VMDisplayQemuTerminalWindowController: CSPortDelegate {
@@ -123,12 +137,6 @@ extension VMDisplayQemuTerminalWindowController: CSPortDelegate {
             DispatchQueue.main.async {
                 terminalView.feed(byteArray: arr)
             }
-        }
-    }
-    
-    func defaultSerialWrite(data: Data) {
-        if let vmSerialPort = vmSerialPort {
-            vmSerialPort.write(data)
         }
     }
 }

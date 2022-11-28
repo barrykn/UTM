@@ -38,9 +38,9 @@ struct VMContextMenuModifier: ViewModifier {
                 data.edit(vm: vm)
             } label: {
                 Label("Edit", systemImage: "slider.horizontal.3")
-            }.disabled(vm.viewState.hasSaveState || vm.state != .vmStopped)
+            }.disabled(vm.hasSaveState || vm.state != .vmStopped)
             .help("Modify settings for this VM.")
-            if vm.viewState.hasSaveState || vm.state != .vmStopped {
+            if vm.hasSaveState || vm.state != .vmStopped {
                 Button {
                     confirmAction = .confirmStopVM
                 } label: {
@@ -74,6 +74,17 @@ struct VMContextMenuModifier: ViewModifier {
                         Label("Run without saving changes", systemImage: "play")
                     }.help("Run the VM in the foreground, without saving data changes to disk.")
                 }
+                
+                #if os(iOS)
+                if let qemuVM = vm as? UTMQemuVirtualMachine {
+                    Button {
+                        qemuVM.isGuestToolsInstallRequested = true
+                    } label: {
+                        Label("Install Windows Guest Tools…", systemImage: "wrench.and.screwdriver")
+                    }.help("Download and mount the guest tools for Windows.")
+                    .disabled(qemuVM.isGuestToolsInstallRequested)
+                }
+                #endif
                 
                 Divider()
             }
@@ -129,5 +140,12 @@ struct VMContextMenuModifier: ViewModifier {
                 showSharePopup.toggle()
             }
         })
+        .onChange(of: (vm as? UTMQemuVirtualMachine)?.isGuestToolsInstallRequested) { newValue in
+            if newValue == true {
+                data.busyWorkAsync {
+                    try await data.mountSupportTools(for: vm as! UTMQemuVirtualMachine)
+                }
+            }
+        }
     }
 }

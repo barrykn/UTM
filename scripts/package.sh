@@ -11,13 +11,14 @@ usage() {
 	echo "usage: $0 MODE inputXcarchive outputPath [TEAM_ID PROFILE_NAME]"
 	echo "  MODE is one of:"
 	echo "          deb (Cydia DEB)"
-	echo "          ipa (unsigned IPA with Psychic paper support)"
-	echo "          ipa-se (unsigned IPA with no entitlements)"
-	echo "          signedipa (developer signed IPA with valid PROFILE_NAME and TEAM_ID)"
+	echo "          ipa (unsigned IPA of full build with all entitlements)"
+	echo "          ipa-se (unsigned IPA of TCI build)"
+	echo "          ipa-hv (unsigned IPA of full build without JIT entitlement)"
+	echo "          ipa-signed (developer signed IPA with valid PROFILE_NAME and TEAM_ID)"
 	echo "  inputXcarchive is path to UTM.xcarchive"
 	echo "  outputPath is path to an EMPTY output directory for UTM.ipa or UTM.deb"
-	echo "  TEAM_ID is only used for signedipa and is the name of the team matching the profile"
-	echo "  PROFILE_NAME is only used for signedipa and is the name of the signing profile"
+	echo "  TEAM_ID is only used for ipa-signed and is the name of the team matching the profile"
+	echo "  PROFILE_NAME is only used for ipa-signed and is the name of the signing profile"
 	exit 1
 }
 
@@ -31,7 +32,7 @@ OUTPUT=$3
 BUNDLE_ID=
 
 case $MODE in
-deb | ipa | signedipa )
+deb | ipa | ipa-hv | ipa-signed )
 	NAME="UTM"
 	BUNDLE_ID="com.utmapp.UTM"
 	INPUT_APP="$INPUT/Products/Applications/UTM.app"
@@ -180,6 +181,10 @@ deb )
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<true/>
+	<key>com.apple.developer.kernel.extended-virtual-addressing</key>
+	<true/>
 	<key>dynamic-codesigning</key>
 	<true/>
 	<key>com.apple.private.iokit.IOServiceSetAuthorizationID</key>
@@ -193,9 +198,9 @@ deb )
 	<true/>
 	<key>com.apple.vm.device-access</key>
 	<true/>
-	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<key>com.apple.private.hypervisor</key>
 	<true/>
-	<key>com.apple.developer.kernel.extended-virtual-addressing</key>
+	<key>com.apple.private.memorystatus</key>
 	<true/>
 </dict>
 </plist>
@@ -216,8 +221,6 @@ ipa )
 	<true/>
 	<key>com.apple.developer.kernel.extended-virtual-addressing</key>
 	<true/>
-	<!-- https://siguza.github.io/psychicpaper/ -->
-	<!---><!-->
 	<key>dynamic-codesigning</key>
 	<true/>
 	<key>com.apple.private.iokit.IOServiceSetAuthorizationID</key>
@@ -231,7 +234,64 @@ ipa )
 	<true/>
 	<key>com.apple.vm.device-access</key>
 	<true/>
-	<!-- -->
+	<key>com.apple.private.hypervisor</key>
+	<true/>
+	<key>com.apple.private.memorystatus</key>
+	<true/>
+</dict>
+</plist>
+EOL
+	create_fake_ipa "$NAME" "$BUNDLE_ID" "$INPUT" "$OUTPUT" "$FAKEENT"
+	rm "$FAKEENT"
+	;;
+ipa-hv )
+	FAKEENT="/tmp/fakeent.$$.plist"
+	cat >"$FAKEENT" <<EOL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>get-task-allow</key>
+	<true/>
+	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<true/>
+	<key>com.apple.developer.kernel.extended-virtual-addressing</key>
+	<true/>
+	<key>com.apple.private.iokit.IOServiceSetAuthorizationID</key>
+	<true/>
+	<key>com.apple.security.exception.iokit-user-client-class</key>
+	<array>
+		<string>AGXCommandQueue</string>
+		<string>AGXDevice</string>
+		<string>AGXDeviceUserClient</string>
+		<string>AGXSharedUserClient</string>
+		<string>AppleUSBHostDeviceUserClient</string>
+		<string>AppleUSBHostInterfaceUserClient</string>
+		<string>IOSurfaceRootUserClient</string>
+		<string>IOAccelContext</string>
+		<string>IOAccelContext2</string>
+		<string>IOAccelDevice</string>
+		<string>IOAccelDevice2</string>
+		<string>IOAccelSharedUserClient</string>
+		<string>IOAccelSharedUserClient2</string>
+		<string>IOAccelSubmitter2</string>
+	</array>
+	<key>com.apple.system.diagnostics.iokit-properties</key>
+	<true/>
+	<key>com.apple.vm.device-access</key>
+	<true/>
+	<key>com.apple.private.hypervisor</key>
+	<true/>
+	<key>com.apple.private.memorystatus</key>
+	<true/>
+	<key>com.apple.private.security.no-container</key>
+	<true/>
+	<key>com.apple.private.security.storage.AppDataContainers</key>
+	<true/>
+	<key>com.apple.private.security.storage.MobileDocuments</key>
+	<true/>
+	<key>platform-application</key>
+	<true/>
 </dict>
 </plist>
 EOL
@@ -254,7 +314,7 @@ ipa-se )
 EOL
 	create_fake_ipa "$NAME" "$BUNDLE_ID" "$INPUT" "$OUTPUT" "$FAKEENT"
 	;;
-signedipa )
+ipa-signed )
 	itunes_sign "$INPUT" "$OUTPUT" $5 $6
 	;;
 esac

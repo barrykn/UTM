@@ -61,15 +61,16 @@ class VMDisplayAppleWindowController: VMDisplayWindowController {
         }
         if !isSecondary {
             // create remaining serial windows
+            let primarySerialIndex = appleConfig.serials.firstIndex { $0.mode == .builtin }
             for i in appleConfig.serials.indices {
-                if i == 0 && self is VMDisplayAppleTerminalWindowController {
+                if i == primarySerialIndex && self is VMDisplayAppleTerminalWindowController {
                     continue
                 }
                 if appleConfig.serials[i].mode != .builtin || appleConfig.serials[i].terminal == nil {
                     continue
                 }
                 let vc = VMDisplayAppleTerminalWindowController(secondaryForIndex: i, vm: appleVM)
-                showSecondaryWindow(vc)
+                registerSecondaryWindow(vc)
             }
         }
     }
@@ -83,6 +84,7 @@ class VMDisplayAppleWindowController: VMDisplayWindowController {
         drivesToolbarItem.isEnabled = false
         usbToolbarItem.isEnabled = false
         startPauseToolbarItem.isEnabled = true
+        resizeConsoleToolbarItem.isEnabled = false
         if #available(macOS 12, *) {
             isPowerForce = false
             sharedFolderToolbarItem.isEnabled = appleConfig.system.boot.operatingSystem == .linux
@@ -148,12 +150,11 @@ class VMDisplayAppleWindowController: VMDisplayWindowController {
 extension VMDisplayAppleWindowController {
     func openShareMenu(_ sender: Any) {
         let menu = NSMenu()
-        for i in appleConfig.sharedDirectories.indices {
+        let entry = appleVM.registryEntry
+        for i in entry.sharedDirectories.indices {
             let item = NSMenuItem()
-            let sharedDirectory = appleConfig.sharedDirectories[i]
-            guard let name = sharedDirectory.directoryURL?.lastPathComponent else {
-                continue
-            }
+            let sharedDirectory = entry.sharedDirectories[i]
+            let name = sharedDirectory.url.lastPathComponent
             item.title = name
             let submenu = NSMenu()
             let ro = NSMenuItem(title: NSLocalizedString("Read Only", comment: "VMDisplayAppleController"),
@@ -188,8 +189,9 @@ extension VMDisplayAppleWindowController {
     
     @objc func addShare(sender: AnyObject) {
         pickShare { url in
-            let sharedDirectory = UTMAppleConfigurationSharedDirectory(directoryURL: url)
-            self.appleConfig.sharedDirectories.append(sharedDirectory)
+            if let sharedDirectory = try? UTMRegistryEntry.File(url: url) {
+                self.appleVM.registryEntry.sharedDirectories.append(sharedDirectory)
+            }
         }
     }
     
@@ -199,10 +201,11 @@ extension VMDisplayAppleWindowController {
             return
         }
         let i = menu.tag
-        let isReadOnly = appleConfig.sharedDirectories[i].isReadOnly
+        let isReadOnly = appleVM.registryEntry.sharedDirectories[i].isReadOnly
         pickShare { url in
-            let sharedDirectory = UTMAppleConfigurationSharedDirectory(directoryURL: url, isReadOnly: isReadOnly)
-            self.appleConfig.sharedDirectories[i] = sharedDirectory
+            if let sharedDirectory = try? UTMRegistryEntry.File(url: url, isReadOnly: isReadOnly) {
+                self.appleVM.registryEntry.sharedDirectories[i] = sharedDirectory
+            }
         }
     }
     
@@ -212,8 +215,8 @@ extension VMDisplayAppleWindowController {
             return
         }
         let i = menu.tag
-        let isReadOnly = appleConfig.sharedDirectories[i].isReadOnly
-        appleConfig.sharedDirectories[i].isReadOnly = !isReadOnly
+        let isReadOnly = appleVM.registryEntry.sharedDirectories[i].isReadOnly
+        appleVM.registryEntry.sharedDirectories[i].isReadOnly = !isReadOnly
     }
     
     @objc func removeShare(sender: AnyObject) {
@@ -222,7 +225,7 @@ extension VMDisplayAppleWindowController {
             return
         }
         let i = menu.tag
-        appleConfig.sharedDirectories.remove(at: i)
+        appleVM.registryEntry.sharedDirectories.remove(at: i)
     }
     
     func pickShare(_ onComplete: @escaping (URL) -> Void) {
@@ -275,6 +278,76 @@ extension VMDisplayAppleWindowController: UTMScreenshotProvider {
         } else {
             return nil
         }
+    }
+}
+
+extension VMDisplayAppleWindowController {
+    @IBAction override func windowsButtonPressed(_ sender: Any) {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        if #available(macOS 12, *), !appleConfig.displays.isEmpty {
+            let item = NSMenuItem()
+            let title = NSLocalizedString("Display", comment: "VMDisplayAppleWindowController")
+            let isCurrent = self is VMDisplayAppleDisplayWindowController
+            item.title = title
+            item.isEnabled = !isCurrent
+            item.state = isCurrent ? .on : .off
+            item.target = self
+            item.action = #selector(showWindowFromDisplay)
+            menu.addItem(item)
+        }
+        for i in appleConfig.serials.indices {
+            if appleConfig.serials[i].mode != .builtin || appleConfig.serials[i].terminal == nil {
+                continue
+            }
+            let item = NSMenuItem()
+            let format = NSLocalizedString("Serial %lld", comment: "VMDisplayAppleWindowController")
+            let title = String.localizedStringWithFormat(format, i + 1)
+            let isCurrent = (self as? VMDisplayAppleTerminalWindowController)?.index == i
+            item.title = title
+            item.isEnabled = !isCurrent
+            item.state = isCurrent ? .on : .off
+            item.tag = i
+            item.target = self
+            item.action = #selector(showWindowFromSerial)
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+    
+    @available(macOS 12, *)
+    @objc private func showWindowFromDisplay(sender: AnyObject) {
+        if self is VMDisplayAppleDisplayWindowController {
+            return
+        }
+        if let window = primaryWindow, window is VMDisplayAppleDisplayWindowController {
+            window.showWindow(self)
+        }
+    }
+    
+    @objc private func showWindowFromSerial(sender: AnyObject) {
+        let item = sender as! NSMenuItem
+        let id = item.tag
+        let secondaryWindows: [VMDisplayWindowController]
+        if let primaryWindow = primaryWindow {
+            if (primaryWindow as? VMDisplayAppleTerminalWindowController)?.index == id {
+                primaryWindow.showWindow(self)
+                return
+            }
+            secondaryWindows = primaryWindow.secondaryWindows
+        } else {
+            secondaryWindows = self.secondaryWindows
+        }
+        for window in secondaryWindows {
+            if (window as? VMDisplayAppleTerminalWindowController)?.index == id {
+                window.showWindow(self)
+                return
+            }
+        }
+        // create new serial window
+        let vc = VMDisplayAppleTerminalWindowController(secondaryForIndex: id, vm: appleVM)
+        registerSecondaryWindow(vc)
+        vc.showWindow(self)
     }
 }
 

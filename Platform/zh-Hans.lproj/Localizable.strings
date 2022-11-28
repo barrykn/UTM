@@ -2,7 +2,7 @@
 "-" = "-";
 
 /* A removable drive that has no image file inserted. */
-"(empty)" = "(empty)";
+"(empty)" = "(空)";
 
 /* No comment provided by engineer. */
 "0.0.0.0" = "0.0.0.0";
@@ -887,8 +887,8 @@
 "Close" = "关闭";
 "Continue" = "下一步";
 "Generate Windows Installer ISO" = "获取 Windows 安装光盘";
-"Boot ISO Image:" = "启动光盘镜像:";
-"Boot VHDX Image:" = "启动 VHDX 磁盘镜像:";
+"Boot ISO Image" = "启动光盘镜像";
+"Boot VHDX Image" = "启动 VHDX 磁盘镜像";
 "Import VHDX Image" = "导入 VHDX 磁盘镜像";
 "Browse" = "浏览文件";
 "Clear" = "清除";
@@ -897,7 +897,7 @@
 "If set, use Apple's virtualization engine. Otherwise, use QEMU's virtualization engine." = "如果启用此选项，将使用 Apple 提供的虚拟化引擎；否则使用 QEMU 提供的虚拟化引擎。";
 "Boot from kernel image" = "从内核镜像启动";
 "If set, boot directly from a raw kernel image and initrd. Otherwise, boot from a supported ISO." = "如果启用此选项，将直接从内核(kernel)镜像和初始RAM磁盘(initrd)启动。";
-"Linux kernel (required):" = "Linux 内核(必须):";
+"Linux kernel (required)" = "Linux 内核(必须)";
 "Linux initial ramdisk:" = "Linux 初始RAM磁盘(initrd):";
 "Linux Root FS Image:" = "Linux Root FS 镜像:";
 "Boot Arguments" = "启动参数";
@@ -948,6 +948,8 @@
 "Removable" = "可移除";
 
 //Display
+"Resize display to screen size and orientation automatically" = "自动将显示画面调整为屏幕大小和方向";
+"VGA Device RAM (MB)" = "VGA设备内存 (MB)";
 "Emulated Display Card" = "虚拟显卡";
 "Auto Resolution" = "自动调整";
 "Resize display to screen size automatically" = "自动调整屏幕尺寸";
@@ -967,12 +969,18 @@
 "Share USB devices from host" = "连接本机的USB设备至虚拟机";
 
 //System
+"IMAGE FILE TYPE" = "镜像文件类型";
+"BOOT IMAGE TYPE" = "启动镜像类型";
+"Empty" = "空";
+"Default" = "默认";
+"DIRECTORY SELECTED" = "选择的目录";
 "UEFI Boot" = "UEFI启动";
 "RNG Device" = "RNG设备";
 "Default is 1/4 of the RAM size (above). The JIT cache size is additive to the RAM size in the total memory usage!" = "默认为上面设置内存大小的1/4。虚拟机在此设备上总占用内存为JIT缓存与上方设置的内存之和。";
 "Force multicore may improve speed of emulation but also might result in unstable and incorrect emulation." = "强制多核可能提升模拟的速度，但也可能导致虚拟机运行不稳定和出现模拟错误。";
 
 //QEMU
+"Balloon Device" = "“气球”设备";
 "Use Hypervisor" = "使用Hypervisor";
 "Do not generate any arguments based on current configuration" = "不要根据当前配置生成任何参数";
 "Use local time for base clock" = "使用本地时间作为基准时钟。";
@@ -1015,9 +1023,9 @@
 "Enable hardware OpenGL acceleration (experimental)" = "启用硬件 OpenGL 加速 (实验功能)";
 
 //VMWizardOSLinuxView
-"Linux initial ramdisk (optional):" = "Linux 初始RAM磁盘 (可选):";
-"Linux Root FS Image (optional):" = "Linux Root FS 镜像 (可选):";
-"Boot ISO Image (optional):" = "启动 ISO 镜像 (可选)";
+"Linux initial ramdisk (optional)" = "Linux 初始RAM磁盘 (可选)";
+"Linux Root FS Image (optional)" = "Linux Root FS 镜像 (可选)";
+"Boot ISO Image (optional)" = "启动 ISO 镜像 (可选)";
 
 //VMWizardOSMacView
 "To install macOS, you need to download a recovery IPSW. If you do not select an existing IPSW, the latest macOS IPSW will be downloaded from Apple." = "要安装 macOS，您需要下载恢复 IPSW 文件。如果您不选择现有的 IPSW，将从 Apple 下载最新的 macOS IPSW";
@@ -1065,3 +1073,26 @@
 "Paused" = "已暂停";
 "Resuming" = "恢复中";
 "Stopping" = "停止中";
+
+//MainScreen
+"Your version of iOS does not support running VMs while unmodified. You must either run UTM while jailbroken or with a remote debugger attached. See https://getutm.app/install/ for more details." = "您的iOS版本不支持在未越狱的情况下运行虚拟机。您必须在越狱时运行UTM，或者附加调试器（使用 Jitterbug 或 Xcode）。有关详细信息，请参阅 https://getutm.app/install/。";
+
+//FileSharing
+"Directory Share Mode" = "目录共享模式";
+"Path" = "路径";
+"SPICE WebDAV (Legacy)" = "SPICE WebDAV";
+"VirtFS (Recommended)" = "VirtFS (推荐)";
+
+//Settings
+"Do not save VM screenshot to disk" = "不保存虚拟机快照至磁盘";
+"Prefer device to external microphone" = "首选设备麦克风而不是外部麦克风";
+"CURSOR - SCROLL WHEEL" = "光标 - 滚轮";
+"Invert Scoll" = "反转滚轮";
+"This virtual machine must be re-added to UTM by opening it with Finder. You can find it at the path: %@" = "此虚拟机必须通过使用 文件App 打开它来重新添加到 UTM。您可以在该路径找到它: %@";
+"JITSTREAMER" = "JITSTREAMER";
+"Enable JitStreamer Attach" = "启用 JitStreamer 附加";
+"JitStreamer IP Address" = "JitStreamer IP 地址";
+"ABOUT" = "关于";
+"Version" = "版本号";
+"Build" = "Build";
+"License" = "许可";

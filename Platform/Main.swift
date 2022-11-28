@@ -34,9 +34,11 @@ class Main {
     static var jitAvailable = true
     
     static func main() {
-        registerDefaultsFromSettingsBundle()
+        #if os(iOS) && !WITH_QEMU_TCI
         // check if we have jailbreak
-        if jb_has_jit_entitlement() {
+        if jb_spawn_ptrace_child(CommandLine.argc, CommandLine.unsafeArgv) {
+            logger.info("JIT: ptrace() child spawn trick")
+        } else if jb_has_jit_entitlement() {
             logger.info("JIT: found entitlement")
         } else if jb_has_cs_disabled() {
             logger.info("JIT: CS_KILL disabled")
@@ -48,6 +50,17 @@ class Main {
             logger.info("JIT: ptrace() hack failed")
             jitAvailable = false
         }
+        // raise memlimits on jailbroken devices
+        if jb_increase_memlimit() {
+            logger.info("MEM: successfully removed memory limits")
+        }
+        #endif
+        // do patches
+        UTMPatches.patchAll()
+        #if os(iOS)
+        // register defaults
+        registerDefaultsFromSettingsBundle()
+        #endif
         UTMApp.main()
     }
     
